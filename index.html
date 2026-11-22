@@ -507,9 +507,9 @@ function buildIdx(){
   for(const d of S.doctors)I.doc.set(d.id,d);
   for(const k of S.packages)I.pkg.set(k.id,k);
   for(const u of S.purchases){I.pur.set(u.id,u);I.used[u.id]=0;if(I.patPur[u.patientId])I.patPur[u.patientId].push(u)}
-  for(const t of S.ledger){I.tx.set(t.id,t);if(!I.pat.has(t.patientId))continue;I.patTx[t.patientId].push(t);
+  for(const t of S.ledger){I.tx.set(t.id,t);if(!I.pat.has(t.patientId))continue;if(t.status!=='removed')I.patTx[t.patientId].push(t);
     if(t.status==='received'){I.col[t.bucket]=round2((I.col[t.bucket]||0)+t.amount);I.patCol[t.patientId]=round2((I.patCol[t.patientId]||0)+t.amount)}
-    else I.patPend[t.patientId]=round2((I.patPend[t.patientId]||0)+t.amount)}
+    else if(t.status!=='removed')I.patPend[t.patientId]=round2((I.patPend[t.patientId]||0)+t.amount)}
   for(const s of S.sessions){I.ses.set(s.id,s);if(!I.pat.has(s.patientId))continue;I.patSes[s.patientId].push(s);
     if(s.status==='active'){if(s.purchaseId&&I.used[s.purchaseId]!=null)I.used[s.purchaseId]++;(I.bucketSes[s.bucket]=I.bucketSes[s.bucket]||[]).push(s)}}
   for(const a of S.appointments){I.app.set(a.id,a);if(I.patApps[a.patientId])I.patApps[a.patientId].push(a)}
@@ -540,7 +540,7 @@ function buildIdx(){
     due=round2(due+ppsDue);out=round2(out+(p.assumePaid?0:Math.max(0,ppsDue-ppsCol)));
     const col=I.patCol[p.id]||0;
     let over=0;for(const u of purs){if(u.status==='closed'||u.settled)continue;const x=I.pu[u.id];if(x.col-u.price>0.005)over+=x.col-u.price}
-    if(p.category==='persession'&&!p.assumePaid&&ppsCol-ppsDue>0.005)over+=ppsCol-ppsDue;over=round2(over);
+    if(!p.assumePaid&&ppsCol-ppsDue>0.005)over+=ppsCol-ppsDue;over=round2(over);
     let status;
     if(p.category==='free')status='free';
     else if(!purs.length&&ppsDue===0&&col===0)status='none';
@@ -842,7 +842,7 @@ function addPayment(d){need('pay');
   if(!validDate(d.date))return{ok:false,error:'تاريخ الدفع غير صحيح.'};
   let bucket;
   if(d.purchaseId){const u=S.purchases.find(x=>x.id===d.purchaseId);if(!u)return{ok:false,error:'المشتراة غير موجودة.'};bucket=u.id;
-    const room=round2(u.price-(IDX.col[u.id]||0));if(u.status==='closed')return{ok:false,error:'هذه الباقة مغلقة.'};if(amt>room+0.001&&!d.allowOver)return{ok:false,error:'المبلغ أكبر من المتبقي على الباقة ('+Math.max(0,room)+' EGP).'}}
+    const room=round2(u.price-(IDX.col[u.id]||0));if(u.status==='closed')return{ok:false,error:'هذه الباقة مغلقة.'};}
   else bucket='pps:'+p.id;
   const t=mkTx({patientId:p.id,date:d.date,amount:amt,type:'payment',method:d.method||METHODS[0],status:d.status==='pending'?'pending':'received',bucket,purchaseId:d.purchaseId||null,note:d.note||''});
   logA('payment',t.id,'تسجيل دفعة'+(t.status==='pending'?' (بانتظار الاستلام)':''),[{field:'المبلغ',from:'',to:amt+' EGP'},{field:'التاريخ',from:'',to:d.date}],'',p.id);
@@ -1256,7 +1256,61 @@ function migrateSched1119(){
   logA('system','schedule','تحميل جدول '+sc.date+' ('+n+' موعد)'+(miss.length?' — لم يُطابَق: '+miss.join('، '):''),[],'');
   buildIdx();save();
 }
-function loadState(){const i=_loadState();migrateV24();migrateV33();migrateV50();migrateSched1119();if(S.center==='مركز التعافي'||!S.center){S.center='SCOLIO';save()}return i}
+/* ===== v52: one-time data fixes (day 18, remove 800 insta on Nov 8, doctor arrival time) ===== */
+const D18={date:'2026-11-18',daily:{cash:2850,insta:0,expenses:2750,exam:500},
+  exp:[['طلبات حزام',2500],['فودافون',250]],
+  rows:[['هاجر حمزه','مريم',0],['الهام احمد','مريم',0],['مدام عزه','مريم',0],['حنين منصور','مريم',0],['نور زكي','اريج',0],['ريناد رشاد','روضه',0],['محمد فراج','احمد',0],['عبدالرحمن إبراهيم','احمد',0],['ادم السعدي','احمد',0],['طارق احمد','احمد',0],['توفيق أنور توفيق','احمد',0],
+  ['مروه ماجد','روضه',0],['مريم عطيه','روضه',0],['مريم رمزي','روضه',0],['سلمي اشرف','روضه',0],['مريم جميل','روضه',0],['رقيه محمد سعد','روضه',0],['سما شريف لطفي','اريج',0],['سما اشرف','اريج',400],['رنا ياسر','اريج',0],['جنه محمود','اريج',0],['تاليا احم','اريج',0],['اروي حمدي','اريج',250],['رميساء','اريج',0],['هاجر مجدي','اريج',0],['سلمي عبد الفتاح','اريج',0],['ليلي الموافي','اريج',0],
+  ['مهند محمد','خالد',2200],['محمد وائل','خالد',0],['فؤاد محرم','خالد',0],['مروان هيثم','خالد',0],['علي صلاح','خالد',0],['عبد الحميد عالد','خالد',0],['محمود كريم','خالد',0],['يوسف رسلان','خالد',0],['يارا شوقي','ميار',0],['رقيه عبد النبي','ميار',0],['حنين احمد','ميار',0],['جودي دياب','ميرنا',0]]};
+function lev1(a,b){if(a===b)return true;if(Math.abs(a.length-b.length)>1)return false;let i=0;while(i<a.length&&i<b.length&&a[i]===b[i])i++;if(a.length===b.length)return a.slice(i+1)===b.slice(i+1);if(a.length>b.length)return a.slice(i+1)===b.slice(i);return b.slice(i+1)===a.slice(i)}
+function d18Match(name,docId){
+  const cn=s=>norm(s).replace(/[^\u0621-\u064a]/g,''),n=cn(name),tk=norm(name).split(/\s+/).filter(x=>x.length>1);
+  const pool=S.patients.filter(p=>!p.examOnly&&p.status!=='archived');
+  const ex=pool.filter(p=>cn(p.name)===n);
+  if(ex.length){const m=ex.filter(p=>p.doctorId===docId);return (m.length===1?m[0]:ex.length===1?ex[0]:null)}
+  const soft=pool.filter(p=>p.doctorId===docId&&(()=>{const c=cn(p.name);if(n.length>=6&&c.startsWith(n))return true;const pt=norm(p.name).split(/\s+/);if(tk.length>=2&&tk.every(t=>pt.includes(t)))return true;
+    if(n.length>=6&&Math.abs(c.length-n.length)<=1)return lev1(n,c);return false})());
+  return soft.length===1?soft[0]:null;
+}
+function migrate52(){
+  if(S.mig52)return;S.mig52=1;
+  const msgs=[];
+  /* 1) remove the 800 EGP Instapay on Nov 8 */
+  const t8=(S.ledger||[]).find(x=>x.id==='T-01058'&&x.amount===800&&x.date==='2026-11-08'&&x.method==='إنستاباي'&&x.status==='received');
+  if(t8){t8.prevStatus=t8.status;t8.status='removed';t8.removedAt=nowISO();t8.removedBy='النظام';t8.removeReason='إزالة 800 إنستا من يوم 8 نوفمبر';
+    logA('payment',t8.id,'إزالة 800 إنستاباي من يوم 8 نوفمبر',[{field:'المبلغ',from:'800',to:'0 (محذوفة)'}],'',t8.patientId);msgs.push('إزالة 800 إنستا')}
+  /* 2) doctor arrival = earlier of doctor/secretary registration */
+  let fixedIn=0;for(const r of S.docAtt||[]){if(r.pend||!r.dIn||!r.sIn)continue;const m=toMin(r.dIn)<=toMin(r.sIn)?r.dIn:r.sIn;if(r.in!==m){r.in=m;fixedIn++}}
+  if(fixedIn)msgs.push('معاد حضور '+fixedIn+' سجل');
+  /* 3) day 18 */
+  const dt=D18.date;
+  if(!S.sessions.some(s=>s.date===dt)&&!(S.expenses||[]).some(e=>e.date===dt)){
+    buildIdx();
+    let ok=0;const miss=[],skip=[],seenP=new Set();
+    for(const [nm,dk,pay] of D18.rows){
+      const doc=S.doctors.find(d=>norm(d.name).indexOf(norm(dk))>=0&&!d.examOnly);
+      const p=doc?d18Match(nm,doc.id):null;
+      if(!p||seenP.has(p.id)){if(!p)miss.push(nm);continue}
+      seenP.add(p.id);
+      const slot=slotsList().find(t=>!doctorConflicts(doc.id,dt,t,60).length&&!patientConflicts(p.id,dt,t,60).length);
+      if(!slot){skip.push(nm);continue}
+      const a=createAppointment({patientId:p.id,schedDoctorId:doc.id,doctorId:doc.id,date:dt,time:slot,duration:60});
+      const r=attendCore(a.id,{silent:true,doctorId:doc.id});
+      if(!r||!r.ok){skip.push(nm);continue}
+      ok++;
+      if(pay>0){const us=S.purchases.filter(u=>u.patientId===p.id&&u.status==='active'),u=us.slice().reverse().find(x=>true)||null;
+        mkTx({patientId:p.id,date:dt,amount:pay,type:'payment',method:'نقدًا',bucket:u?u.id:'pps:'+p.id,purchaseId:u?u.id:null,note:'دفعة مسجلة في ملف الحضور اليومي'})}
+    }
+    S.daily=S.daily||[];let row=S.daily.find(x=>x.date===dt);if(!row){row={date:dt,cash:0,expenses:0,insta:0,exam:0};S.daily.push(row)}
+    row.cash=D18.daily.cash;row.insta=D18.daily.insta;row.expenses=D18.daily.expenses;row.exam=Math.max(row.exam||0,D18.daily.exam);
+    S.expenses=S.expenses||[];D18.exp.forEach((e,i)=>S.expenses.push({id:'X-1118-'+(i+1),date:dt,text:e[0],amount:e[1]}));
+    logA('system','day18','تسجيل يوم 18 نوفمبر: '+ok+' جلسة'+(miss.length?' — لم يُطابَق: '+miss.join('، '):'')+(skip.length?' — لم تُسجَّل (الباقة أو التعارض): '+skip.join('، '):''),[],'');
+    msgs.push('يوم 18: '+ok+' جلسة');
+  }
+  logA('system','mig52','تحديث v52: '+msgs.join(' · '),[],'');
+  buildIdx();save();
+}
+function loadState(){const i=_loadState();migrateV24();migrateV33();migrateV50();migrateSched1119();migrate52();if(S.center==='مركز التعافي'||!S.center){S.center='SCOLIO';save()}return i}
 function removeDemo(){need('admin');
   const ids=new Set(S.patients.filter(p=>p.demo).map(p=>p.id));
   S.patients=S.patients.filter(p=>!ids.has(p.id));S.appointments=S.appointments.filter(a=>!ids.has(a.patientId));S.sessions=S.sessions.filter(s=>!ids.has(s.patientId));
@@ -1266,7 +1320,7 @@ function removeDemo(){need('admin');
 }
 function resetAll(){need('admin');seedReal();save();return true}
 function exportJSON(){need('admin');return JSON.stringify(S)}
-function importJSON(text){need('admin');try{const o=JSON.parse(text);if(!validState(o))return{ok:false,error:'الملف غير صالح أو من إصدار غير مدعوم.'};o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];o.dataVer=DATA_VER;S=o;logA('system','restore','استعادة نسخة احتياطية',[]);commit();return{ok:true}}catch(e){return{ok:false,error:'تعذر قراءة الملف (JSON غير صحيح).'}}}
+function importJSON(text){need('admin');try{const o=JSON.parse(text);if(!validState(o))return{ok:false,error:'الملف غير صالح أو من إصدار غير مدعوم.'};o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];o.dataVer=DATA_VER;S=o;buildIdx();migrate52();logA('system','restore','استعادة نسخة احتياطية',[]);commit();return{ok:true}}catch(e){return{ok:false,error:'تعذر قراءة الملف (JSON غير صحيح).'}}}
 
 /* =====================================================================
    Accounts and permissions.
@@ -1872,7 +1926,7 @@ function openPatientForm(o){
       if(d.category==='package'&&!edit&&!activePackages().length)return{errors:e,formErr:'لا توجد باقات مفعّلة. أضف باقة من صفحة الباقات أولاً.'};
       if(d.category==='persession'&&isFin()&&!(num(d.perSessionPrice)>0))e.perSessionPrice='سعر الجلسة يجب أن يكون أكبر من صفر.';
       if(d.category==='free'&&!(Math.round(num(d.authorized))>=1))e.authorized='أدخل عدداً صحيحاً أكبر من صفر.';
-      if(!edit&&d.category==='package'){if((isFin()||canDo('pkg'))&&!(num(d.price)>0))e.price='السعر يجب أن يكون أكبر من صفر.';if(num(d.paid)>num(d.price))e.paid='المبلغ المدفوع لا يمكن أن يتجاوز السعر.'}
+      if(!edit&&d.category==='package'){if((isFin()||canDo('pkg'))&&!(num(d.price)>0))e.price='السعر يجب أن يكون أكبر من صفر.';}
       if(num(d.paid)<0)e.paid='المبلغ لا يمكن أن يكون سالباً.';
       if(!edit&&d.apptDate){const c=checkSchedule({patientId:'__new',doctorId:d.doctorId,date:d.apptDate,time:d.apptTime,duration:S.settings.slot});const er=c.errors.filter(x=>!/المريض/.test(x));if(er.length)e.apptDate=er[0]}
       if(edit&&d.category==='package'&&p.category!=='package'&&!IDX.patPur[p.id].some(u=>u.status==='active'))return{errors:e,warnings:['لا توجد باقة نشطة لهذا المريض بعد التحويل إلى باقة كاملة؛ اشترِ باقة من ملفه لتسجيل الحضور.']};
@@ -1903,14 +1957,14 @@ function openBuyForm(pid){
       if(p.category!=='package')h+='<div class="note warn">سيتم تحويل فئة المريض من «'+CAT_L[p.category]+'» إلى «باقة كاملة».</div>';
       const cur=currentPurchase(pid);if(cur&&IDX.pu[cur.id].remaining>0)h+='<div class="note">لدى المريض باقة نشطة متبقٍ فيها '+IDX.pu[cur.id].remaining+' جلسة. تُستهلك الباقات بترتيب الشراء.</div>';return h},
     onChange(d,k){if(k==='packageId'){const k2=S.packages.find(x=>x.id===d.packageId);if(k2){d.sessions=k2.sessions}}},
-    validate(d){const e={};if((isFin()||canDo('pkg'))&&!(num(d.price)>0))e.price='السعر يجب أن يكون أكبر من صفر.';if(num(d.paid)>num(d.price))e.paid='المبلغ المدفوع لا يمكن أن يتجاوز السعر.';return{errors:e}},
+    validate(d){const e={};if((isFin()||canDo('pkg'))&&!(num(d.price)>0))e.price='السعر يجب أن يكون أكبر من صفر.';;return{errors:e}},
     onSave(d){createPurchase({patientId:pid,packageId:d.packageId,price:num(d.price),sessions:Math.round(num(d.sessions)),paid:num(d.paid),method:d.method,date:d.date});return{msg:'تم تسجيل شراء الباقة.'}}});
 }
 function openPayForm(pid,puId){
   const p=patById(pid);const purs=IDX.patPur[pid].filter(u=>u.status==='active'&&IDX.pu[u.id].out>0);
   const targets=purs.map(u=>({v:u.id,l:u.id+' · '+u.name+' · متبقٍ '+nfmt(IDX.pu[u.id].out)+' EGP'}));
   if(p.category==='persession')targets.push({v:'pps',l:'الدفع بالجلسة (مستحق '+nfmt(Math.max(0,pdOf(pid).outstanding-purs.reduce((a,u)=>a+IDX.pu[u.id].out,0)))+' EGP)'});
-  if(!targets.length){toast('لا توجد مبالغ مستحقة لتسجيل دفعة عليها.','warn');return}
+  if(!targets.length){const lu=(IDX.patPur[pid]||[]).filter(u=>u.status==='active'&&!u.settled).slice(-1)[0];targets.push(lu?{v:lu.id,l:lu.id+' · '+lu.name}:{v:'pps',l:'دفعة على حساب المريض'})}
   const tg=puId&&targets.some(t=>t.v===puId)?puId:targets[0].v;
   openForm({title:'تسجيل دفعة — '+p.name,submit:'تسجيل الدفعة',draft:{target:tg,amount:'',date:todayISO(),method:METHODS[0],status:'received',note:''},
     fields:d=>[{k:'target',label:'الدفعة على',type:'select',options:targets,full:true},{k:'amount',label:'المبلغ (EGP)',type:'number',min:0,step:50,req:true},{k:'date',label:'تاريخ الدفع',type:'date',req:true},
@@ -2058,7 +2112,7 @@ function calendarHTML(){
 /* ---------- doctors pages ---------- */
 /* live payments -> per-day cash / insta (seed payments are already inside S.daily) */
 const SEED_TX=/^(دفعة مسجلة في ملف الحضور اليومي|من سجل الحالات)/;
-function effDaily(){const live={};for(const t of S.ledger||[]){if(t.status!=='received'||(t.type!=='payment'&&t.type!=='refund'&&t.type!=='reversal'))continue;if(t.adj||SEED_TX.test(t.note||''))continue;if(!IDX.pat.has(t.patientId))continue;const o=live[t.date]||(live[t.date]={cash:0,insta:0});if((t.method||'')==='نقدًا')o.cash+=t.amount;else o.insta+=t.amount}
+function effDaily(){const live={};for(const t of S.ledger||[]){const seed=t.adj||SEED_TX.test(t.note||''),rm=t.status==='removed'&&seed&&t.type==='payment';if(!rm&&(t.status!=='received'||(t.type!=='payment'&&t.type!=='refund'&&t.type!=='reversal')))continue;if(!rm&&seed)continue;if(!IDX.pat.has(t.patientId))continue;const amt=rm?-t.amount:t.amount;const o=live[t.date]||(live[t.date]={cash:0,insta:0});if((t.method||'')==='نقدًا')o.cash+=amt;else o.insta+=amt}
   const rows=(S.daily||[]).map(r=>Object.assign({},r)),by=new Map(rows.map(r=>[r.date,r]));
   for(const d in live){let r=by.get(d);if(!r){r={date:d,cash:0,expenses:0,insta:0,exam:0};rows.push(r);by.set(d,r)}r.cash=round2((r.cash||0)+live[d].cash);r.insta=round2((r.insta||0)+live[d].insta)}
   return rows}
@@ -2456,7 +2510,7 @@ function presApply(r,side,inT,outT){
   if(r.in&&!r.dIn&&!r.sIn&&!r.pend){r.dIn=r.sIn=r.in;if(r.out){r.dOut=r.sOut=r.out}}
   if(inT!==undefined){if(side!=='sec')r.dIn=inT;if(side!=='doc')r.sIn=inT}
   if(outT!==undefined){if(side!=='sec')r.dOut=outT;if(side!=='doc')r.sOut=outT}
-  r.pend=!(r.dIn&&r.sIn);r.in=r.pend?'':(r.sIn||r.dIn);r.out=(!r.pend&&r.dOut&&r.sOut)?r.sOut:'';
+  r.pend=!(r.dIn&&r.sIn);r.in=r.pend?'':((r.dIn&&r.sIn)?(toMin(r.dIn)<=toMin(r.sIn)?r.dIn:r.sIn):(r.sIn||r.dIn));r.out=(!r.pend&&r.dOut&&r.sOut)?r.sOut:'';
 }
 function presenceOf(did,date){return (S.docAtt||[]).find(x=>x.doctorId===did&&x.date===date)||null}
 function absenceOnDate(did,date){return S.absences.find(x=>x.doctorId===did&&x.date<=date&&date<=(x.dateTo||x.date))||null}
@@ -2495,8 +2549,8 @@ function attendanceHTML(d){
   const presM=pres.filter(x=>x.date.slice(0,7)===ym);
   const totMin=presM.reduce((a,x)=>a+(x.in&&x.out&&toMin(x.out)>toMin(x.in)?toMin(x.out)-toMin(x.in):0),0);let absDays=0;for(let dt=ym+'-01';dt<=last;dt=addDaysS(dt,1)){if(absenceOnDate(d.id,dt))absDays++}
   let h='<div class="page-head"><h3>ملخص الحضور والغياب</h3><span class="cal-bar"><button class="ib" data-act="dmonth" data-d="-1" aria-label="الشهر السابق">'+ic('prev',16)+'</button><span class="cal-title" style="font-size:14px">'+monthLabel(ym)+'</span><button class="ib" data-act="dmonth" data-d="1" aria-label="الشهر التالي">'+ic('next',16)+'</button></span></div>';
-  h+='<div class="stats">'+statCard('أيام الحضور',presM.length,'في هذا الشهر',true)+statCard('أيام الغياب',absDays,'في هذا الشهر')+statCard('إجمالي ساعات العمل',Math.floor(totMin/60)+' س '+(totMin%60)+' د','من الحضور والانصراف المسجلين')+'</div>';
-  h+='<h3>سجل الحضور</h3>'+(pres.length?'<ul class="list">'+pres.slice(0,60).map(x=>'<li><span class="m"><b>'+dlong(x.date)+'</b><span class="muted sm-t">'+(x.in?'حضور '+tfmtT(x.in):'بدون وقت حضور')+(x.out?' · انصراف '+tfmtT(x.out):' · لم يُسجَّل الانصراف')+(x.in&&x.out&&hoursTxt(x.in,x.out)?' · '+hoursTxt(x.in,x.out):'')+(x.note?' · '+esc(x.note):'')+'</span></span><span class="mf"><span class="b paid">حضر</span><button class="btn sm" data-act="editPresence" data-id="'+x.id+'">تعديل</button><button class="btn sm danger" data-act="delPresence" data-id="'+x.id+'">حذف</button></span></li>').join('')+'</ul>'+(pres.length>60?'<p class="hint">يعرض أحدث 60 تسجيلاً.</p>':''):'<p class="hint">لا توجد تسجيلات حضور بعد. اضغط «تسجيل حضور».</p>');
+  h+='<div class="stats">'+statCard('أيام الحضور',new Set(S.sessions.filter(s=>s.status==='active'&&s.doctorId===d.id&&s.date.slice(0,7)===ym).map(s=>s.date)).size,'أيام فيها حالات في هذا الشهر',true)+statCard('أيام الغياب',absDays,'في هذا الشهر')+'</div>';
+  h+='<h3>سجل الحضور</h3>'+(pres.length?'<ul class="list">'+pres.slice(0,60).map(x=>'<li><span class="m"><b>'+dlong(x.date)+'</b><span class="muted sm-t">'+(x.in?'حضور '+tfmtT(x.in):'بدون وقت حضور')+(x.out?' · انصراف '+tfmtT(x.out):' · لم يُسجَّل الانصراف')+(x.note?' · '+esc(x.note):'')+'</span></span><span class="mf"><span class="b paid">حضر</span><button class="btn sm" data-act="editPresence" data-id="'+x.id+'">تعديل</button><button class="btn sm danger" data-act="delPresence" data-id="'+x.id+'">حذف</button></span></li>').join('')+'</ul>'+(pres.length>60?'<p class="hint">يعرض أحدث 60 تسجيلاً.</p>':''):'<p class="hint">لا توجد تسجيلات حضور بعد. اضغط «تسجيل حضور».</p>');
   return h;
 }
 function openPresenceForm(did,id){
@@ -3014,6 +3068,23 @@ function openSetPkgPrice(pid){
     onYes:(reason,d)=>{const r=setPurchasePrice(u.id,d.price,reason);return r.ok?{msg:r.msg}:{error:r.error}}});
 }
 
+/* ---------- remove / restore payment ---------- */
+function removeTx(id,reason){
+  need('admin');const t=S.ledger.find(x=>x.id===id);
+  if(!t||t.status==='removed')return{ok:false,error:'الدفعة غير موجودة.'};
+  if(t.type!=='payment'||t.reversedBy)return{ok:false,error:'تعذر إزالة هذه الحركة.'};
+  t.prevStatus=t.status;t.status='removed';t.removedAt=nowISO();t.removedBy=ACTOR;t.removeReason=reason||'';
+  logA('payment',id,'إزالة دفعة',[{field:'المبلغ',from:String(t.amount),to:'0 (محذوفة)'},{field:'التاريخ',from:t.date,to:''}],reason||'',t.patientId);
+  commit();return{ok:true,msg:'تمت إزالة الدفعة من كل الحسابات.'};
+}
+function restoreTx(id){
+  need('admin');const t=S.ledger.find(x=>x.id===id);
+  if(!t||t.status!=='removed')return{ok:false,error:'الدفعة غير محذوفة.'};
+  t.status=t.prevStatus||'received';delete t.prevStatus;delete t.removedAt;delete t.removedBy;delete t.removeReason;
+  logA('payment',id,'استرجاع دفعة محذوفة',[{field:'المبلغ',from:'0',to:String(t.amount)}],'',t.patientId);
+  commit();return{ok:true,msg:'تم استرجاع الدفعة.'};
+}
+
 /* ---------- shared day bar ---------- */
 function dayBar(k,title,sub,extra){
   const st=UI[k];
@@ -3033,18 +3104,20 @@ function dailyaccHTML(){
   const live=rows.filter(t=>t.status==='received');
   const payers=new Set(live.filter(t=>t.type==='payment'&&!t.reversedBy).map(t=>t.patientId));
   const cash=round2(tot.cash||0),insta=round2(tot.insta||0),exp=round2(tot.expenses||0);
+  const overList=S.patients.filter(p=>pdOf(p.id).over>0.005).map(p=>({p,o:pdOf(p.id).over})).sort((a,b)=>b.o-a.o),overTotal=round2(overList.reduce((a,x)=>a+x.o,0));
   let h=dayBar('da','الحسابات اليومية','مين دفع في اليوم، مع تسجيل دفعة أو تصحيحها.','<button class="btn primary" data-act="daAddPay">'+ic('plus')+' تسجيل دفعة</button>');
-  h+='<div class="stats">'+statCard('نقدي',money(cash))+statCard('إنستا / تحويلات',money(insta))+statCard('إجمالي المدفوع',money(cash+insta),payers.size+' مريض دفع',true)+statCard('مصروفات',money(exp))+statCard('الصافي بعد المصروفات',money(cash+insta-exp),'',true)+statCard('كشوفات د. بسمه',money(tot.exam||0),'خارج الإيراد')+'</div>';
+  h+='<div class="stats">'+statCard('نقدي',money(cash))+statCard('إنستا / تحويلات',money(insta))+statCard('إجمالي المدفوع',money(cash+insta),payers.size+' مريض دفع',true)+statCard('مصروفات',money(exp))+statCard('الصافي بعد المصروفات',money(cash+insta-exp),'',true)+statCard('كشوفات د. بسمه',money(tot.exam||0),'خارج الإيراد')+(overTotal>0?statCard('دفع زيادة (كل المرضى)',money(overTotal),overList.length+' مريض'):'')+'</div>';
   h+='<section class="card"><h2>مين دفع</h2>';
   if(!rows.length)h+=empty('لا توجد دفعات في هذا اليوم','سجّل دفعة بالزر بالأعلى.');
   else h+=tbl(['#','المريض','النوع','المبلغ','الطريقة','على','ملاحظة','الحالة',''],rows.map((t,i)=>{
     const u=IDX.pur.get(t.bucket),rev=!!t.reversedBy||t.type==='reversal'||t.status!=='received';
     const canE=t.type==='payment'&&!t.reversedBy&&t.status==='received';
-    return '<tr'+(rev?' class="r-can"':'')+'><td class="n">'+(i+1)+'</td><td><button class="link" data-act="openPanel" data-id="'+t.patientId+'">'+esc(patName(t.patientId))+'</button></td><td>'+TX_L[t.type]+'</td><td class="c">'+money(t.amount)+'</td><td>'+esc(t.method||'')+(t.method===CASH_M?'':' <span class="muted sm-t">(إنستا)</span>')+'</td><td>'+esc(u?u.name:'دفع بالجلسة')+'</td><td class="notes">'+esc(t.note||'')+(t.reason?' · '+esc(t.reason):'')+'</td><td>'+(t.reversedBy?'معكوسة':t.status==='received'?'مستلمة':'بانتظار')+'</td><td class="acts">'+(canE?'<button class="btn sm" data-act="corrPay" data-tid="'+t.id+'">تصحيح</button><button class="btn sm danger" data-act="revPay" data-tid="'+t.id+'">عكس</button>':'')+'</td></tr>'}).join(''),760);
+    return '<tr'+(rev?' class="r-can"':'')+'><td class="n">'+(i+1)+'</td><td><button class="link" data-act="openPanel" data-id="'+t.patientId+'">'+esc(patName(t.patientId))+'</button></td><td>'+TX_L[t.type]+'</td><td class="c">'+money(t.amount)+'</td><td>'+esc(t.method||'')+(t.method===CASH_M?'':' <span class="muted sm-t">(إنستا)</span>')+'</td><td>'+esc(u?u.name:'دفع بالجلسة')+'</td><td class="notes">'+esc(t.note||'')+(t.reason?' · '+esc(t.reason):'')+'</td><td>'+(t.status==='removed'?'محذوفة':t.reversedBy?'معكوسة':t.status==='received'?'مستلمة':'بانتظار')+'</td><td class="acts">'+(canE?'<button class="btn sm" data-act="corrPay" data-tid="'+t.id+'">تصحيح</button><button class="btn sm danger" data-act="removeTx" data-tid="'+t.id+'">إزالة</button>':(t.status==='removed'?'<button class="btn sm" data-act="restoreTx" data-tid="'+t.id+'">استرجاع</button>':''))+'</td></tr>'}).join(''),760);
   h+='</section>';
   const ex=(S.expenses||[]).filter(r=>r.date===d),exa=(S.exams||[]).filter(r=>r.date===d);
-  h+='<div class="two"><section class="card"><h2>مصروفات اليوم</h2>'+(ex.length?tbl(['البند','المبلغ'],ex.map(r=>'<tr><td>'+esc(r.text)+'</td><td class="c">'+money(r.amount)+'</td></tr>').join(''),300):empty('لا توجد مصروفات'))+'</section>';
-  h+='<section class="card"><h2>كشوفات اليوم</h2>'+(exa.length?tbl(['المريض','المبلغ'],exa.map(r=>'<tr><td>'+esc(examName(r))+'</td><td class="c">'+money(r.amount)+'</td></tr>').join(''),300):empty('لا توجد كشوفات'))+'</section></div>';
+  h+='<div class="two"><section class="card"><h2>مصروفات اليوم</h2>'+(ex.length?tbl(['البند','المبلغ',''],ex.map(r=>'<tr><td>'+esc(r.text)+'</td><td class="c">'+money(r.amount)+'</td><td class="acts"><button class="btn sm danger" data-act="removeExp" data-id="'+r.id+'">إزالة</button></td></tr>').join(''),320):empty('لا توجد مصروفات'))+'</section>';
+  h+='<section class="card"><h2>كشوفات اليوم</h2>'+(exa.length?tbl(['المريض','المبلغ',''],exa.map(r=>'<tr><td>'+esc(examName(r))+'</td><td class="c">'+money(r.amount)+'</td><td class="acts"><button class="btn sm danger" data-act="cancelExam" data-id="'+r.id+'">إزالة</button></td></tr>').join(''),320):empty('لا توجد كشوفات'))+'</section></div>';
+  if(overList.length)h+='<section class="card"><h2>مرضى دفعوا زيادة</h2><p class="muted">مبالغ مدفوعة أكتر من المطلوب (تظهر للمدير فقط).</p>'+tbl(['المريض','الزيادة'],overList.slice(0,40).map(x=>'<tr><td><button class="link" data-act="openPanel" data-id="'+x.p.id+'">'+esc(x.p.name)+'</button></td><td class="c">'+money(x.o)+'</td></tr>').join(''),320)+'</section>';
   return h;
 }
 function openDayPayForm(){
@@ -3089,50 +3162,51 @@ function dailytxHTML(){
   return h+'</section>';
 }
 
-/* ---------- fixed schedule (secretary + admin) ---------- */
+/* ---------- fixed schedule (secretary + admin): doctor on top, week below ---------- */
 function fxS(){return S.fixedSched=S.fixedSched||[]}
 function fxId(day,did,time){return 'FX-'+day+'-'+did+'-'+String(time).replace(':','')}
-function fxState(){UI.fx=UI.fx||{day:null};if(UI.fx.day==null){const wd=S.settings.workDays||[6,0,1,2,3,4],t=weekday(todayISO());UI.fx.day=wd.includes(t)?t:wd[0]}return UI.fx}
-function fxDocs(day){return S.doctors.filter(d=>d.active&&!d.examOnly&&(d.workDays||[]).includes(day))}
+function fxDocsAll(){return S.doctors.filter(d=>d.active&&!d.examOnly)}
+function fxState(){UI.fx=UI.fx||{doc:null};const l=fxDocsAll();if(!UI.fx.doc||!l.some(d=>d.id===UI.fx.doc))UI.fx.doc=l.length?l[0].id:null;return UI.fx}
+function fxDays(d){const wd=S.settings.workDays||[6,0,1,2,3,4];return wd.filter(i=>(d.workDays||[]).includes(i))}
 function fxLines(t){return String(t||'').split('\n').map(x=>x.trim()).filter(Boolean)}
-function fxCount(day){let n=0;for(const r of fxS())if(r.day===day)n+=fxLines(r.text).length;return n}
+function fxCount(did){let n=0;for(const r of fxS())if(r.doctorId===did)n+=fxLines(r.text).length;return n}
 function fixedHTML(){
-  const st=fxState(),day=st.day,wd=S.settings.workDays||[6,0,1,2,3,4],docs=fxDocs(day),slots=slotsList();
-  const map=new Map(fxS().map(r=>[r.id,r]));
-  let h='<div class="page-head"><div><h1>الجدول الثابت</h1><p class="muted">جدول ثابت تحفظه السكرتارية وتعدّل عليه، غير مرتبط بالحجوزات أو الحسابات. اكتب اسم كل مريض في سطر.</p></div><div class="acts"><button class="btn" data-act="fxPrint">طباعة</button></div></div>';
-  h+='<div class="acts" style="flex-wrap:wrap;margin:10px 0">'+wd.map(i=>'<button class="btn'+(i===day?' primary':'')+'" data-act="fxDay" data-day="'+i+'">'+WD[i]+'</button>').join('')+'</div>';
-  h+='<section class="card"><div class="acts" style="flex-wrap:wrap;align-items:center;margin-bottom:10px"><span class="muted">'+WD[day]+' · <b id="fx-count">'+fxCount(day)+'</b> مريض · <span id="fx-saved"></span></span>'+
-    '<span style="flex:1"></span><select class="sel" id="fx-src" aria-label="نسخ من يوم">'+wd.filter(i=>i!==day).map(i=>'<option value="'+i+'">'+WD[i]+'</option>').join('')+'</select><button class="btn sm" data-act="fxCopy">نسخ من اليوم ده</button><button class="btn sm danger" data-act="fxClear">مسح اليوم</button></div>';
-  if(!docs.length)return h+empty('لا يوجد أطباء في هذا اليوم')+'</section>';
-  h+='<div class="tw" style="max-height:none"><table class="xl w" style="min-width:'+(120+docs.length*170)+'px"><thead><tr><th>الوقت</th>'+docs.map(d=>'<th>'+esc(d.name)+'</th>').join('')+'</tr></thead><tbody>';
-  for(const t of slots){h+='<tr><td class="n" style="white-space:nowrap">'+tfmtT(t)+'</td>'+docs.map(d=>{const r=map.get(fxId(day,d.id,t));return '<td style="padding:4px"><textarea class="inp" rows="2" style="width:100%;min-width:150px" data-ch="fxCell" data-d="'+d.id+'" data-t="'+t+'" aria-label="'+esc(d.name)+' '+t+'">'+esc(r?r.text:'')+'</textarea></td>'}).join('')+'</tr>'}
+  const st=fxState(),docs=fxDocsAll(),d=docs.find(x=>x.id===st.doc);
+  let h='<div class="page-head"><div><h1>الجدول الثابت</h1><p class="muted">اختر الدكتور من فوق، يظهر له جدول الأسبوع تحت. اكتب اسم كل مريض في سطر، والحفظ تلقائي. الجدول غير مرتبط بالحجوزات أو الحسابات.</p></div><div class="acts"><button class="btn" data-act="fxPrint">طباعة</button></div></div>';
+  if(!d)return h+empty('لا يوجد أطباء');
+  const days=fxDays(d),slots=slotsList(d.start,d.end),map=new Map(fxS().map(r=>[r.id,r]));
+  h+='<section class="card"><div class="acts" style="flex-wrap:wrap;align-items:center;margin-bottom:10px"><label class="muted" for="fx-doc">الدكتور</label><select class="sel" id="fx-doc" data-ch="fxDoc" style="min-width:180px">'+docs.map(x=>'<option value="'+x.id+'"'+(x.id===d.id?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select>'+
+    '<span class="muted"><b id="fx-count">'+fxCount(d.id)+'</b> مريض في الأسبوع · <span id="fx-saved"></span></span><span style="flex:1"></span>'+
+    '<select class="sel" id="fx-src" aria-label="نسخ من دكتور">'+docs.filter(x=>x.id!==d.id).map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('')+'</select><button class="btn sm" data-act="fxCopy">نسخ جدوله</button><button class="btn sm danger" data-act="fxClear">مسح جدول '+esc(d.name)+'</button></div>';
+  if(!days.length)return h+empty('الدكتور ده مفيش له أيام عمل')+'</section>';
+  h+='<div class="tw" style="max-height:none"><table class="xl w" style="min-width:'+(120+days.length*170)+'px"><thead><tr><th>الوقت</th>'+days.map(i=>'<th>'+WD[i]+'</th>').join('')+'</tr></thead><tbody>';
+  for(const t of slots){h+='<tr><td class="n" style="white-space:nowrap">'+tfmtT(t)+'</td>'+days.map(i=>{const r=map.get(fxId(i,d.id,t));return '<td style="padding:4px"><textarea class="inp" rows="2" style="width:100%;min-width:150px" data-ch="fxCell" data-d="'+d.id+'" data-day="'+i+'" data-t="'+t+'" aria-label="'+WD[i]+' '+t+'">'+esc(r?r.text:'')+'</textarea></td>'}).join('')+'</tr>'}
   return h+'</tbody></table></div></section>';
 }
-function fxSave(did,time,text){
-  const day=fxState().day,id=fxId(day,did,time),l=fxS(),i=l.findIndex(r=>r.id===id),tx=fxLines(text).join('\n');
+function fxSave(did,day,time,text){
+  const id=fxId(day,did,time),l=fxS(),i=l.findIndex(r=>r.id===id),tx=fxLines(text).join('\n');
   if(!tx){if(i>=0)l.splice(i,1)}
   else if(i>=0){l[i].text=tx;l[i].by=ACTOR;l[i].ts=nowISO()}
   else l.push({id,day,doctorId:did,time,text:tx,by:ACTOR,ts:nowISO()});
   commit();
 }
-function fxCopyDay(src,dst){
-  const rows=fxS().filter(r=>r.day===src);
-  S.fixedSched=fxS().filter(r=>r.day!==dst);
-  for(const r of rows){const d=S.doctors.find(x=>x.id===r.doctorId);if(!d||!(d.workDays||[]).includes(dst))continue;S.fixedSched.push({id:fxId(dst,r.doctorId,r.time),day:dst,doctorId:r.doctorId,time:r.time,text:r.text,by:ACTOR,ts:nowISO()})}
+function fxCopyDoc(src,dst){
+  const d=S.doctors.find(x=>x.id===dst);if(!d)return;
+  const rows=fxS().filter(r=>r.doctorId===src);
+  S.fixedSched=fxS().filter(r=>r.doctorId!==dst);
+  for(const r of rows){if(!(d.workDays||[]).includes(r.day))continue;S.fixedSched.push({id:fxId(r.day,dst,r.time),day:r.day,doctorId:dst,time:r.time,text:r.text,by:ACTOR,ts:nowISO()})}
   commit();
 }
 
-/* ---------- doctor attendance summary (admin) ---------- */
+/* ---------- doctor attendance summary (admin): a day counts if the doctor had cases ---------- */
 function attSummaryHTML(){
   if(!canDo('admin'))return '';
   const ym=UI.asm||todayISO().slice(0,7),docs=S.doctors.filter(d=>d.active&&!d.examOnly);
   const rows=docs.map(d=>{
-    const pres=(S.docAtt||[]).filter(x=>x.doctorId===d.id&&!x.pend&&String(x.date).slice(0,7)===ym);
-    const pd=new Set(pres.map(x=>x.date)).size;let mins=0;for(const x of pres)if(x.in&&x.out&&toMin(x.out)>toMin(x.in))mins+=toMin(x.out)-toMin(x.in);
-    const ss=S.sessions.filter(s=>s.status==='active'&&s.doctorId===d.id&&s.date.slice(0,7)===ym);
-    return '<tr><td><button class="link" data-act="openDoctor" data-id="'+d.id+'">'+esc(d.name)+'</button></td><td class="c"><b>'+pd+'</b></td><td class="c">'+new Set(ss.map(s=>s.date)).size+'</td><td class="c">'+ss.length+'</td><td class="c">'+(mins?Math.floor(mins/60)+' س '+(mins%60)+' د':'—')+'</td></tr>'}).join('');
-  return '<section class="card"><div class="acts" style="align-items:center;flex-wrap:wrap"><div><h2>أيام حضور الأطباء</h2><p class="muted">عدد الأيام اللي كل دكتور حضر فيها. تسجيل الحضور والانصراف بدأ من 19/11/2026، وللأيام قبل كده استخدم عمود «أيام فيها جلسات».</p></div><span style="flex:1"></span><input class="inp" type="month" style="width:170px" data-in="asMonth" value="'+ym+'" aria-label="الشهر"></div>'+
-    tbl(['الطبيب','أيام الحضور المسجّل','أيام فيها جلسات','عدد الجلسات','ساعات العمل'],rows,560)+'</section>';
+    const ss=S.sessions.filter(s=>s.status==='active'&&s.doctorId===d.id&&s.date.slice(0,7)===ym&&IDX.pat.has(s.patientId));
+    return '<tr><td><button class="link" data-act="openDoctor" data-id="'+d.id+'">'+esc(d.name)+'</button></td><td class="c"><b>'+new Set(ss.map(s=>s.date)).size+'</b></td><td class="c">'+ss.length+'</td></tr>'}).join('');
+  return '<section class="card"><div class="acts" style="align-items:center;flex-wrap:wrap"><div><h2>أيام حضور الأطباء</h2><p class="muted">اليوم يُحسب حضورًا لو الدكتور عمل فيه حالة واحدة على الأقل.</p></div><span style="flex:1"></span><input class="inp" type="month" style="width:170px" data-in="asMonth" value="'+ym+'" aria-label="الشهر"></div>'+
+    tbl(['الطبيب','أيام الحضور','عدد الحالات'],rows,420)+'</section>';
 }
 
 /* ---------- braces: reassessment / first booking / first exam ---------- */
@@ -3155,20 +3229,26 @@ Object.assign(ACT,{
   daAddPay(){openDayPayForm()},
   caseRate(t){openCaseRate(t.dataset.id)},
   setPkgPrice(t){openSetPkgPrice(t.dataset.id)},
-  fxDay(t){fxState().day=+t.dataset.day;refresh()},
-  fxCopy(){const src=+$('#fx-src').value,day=fxState().day;if(!fxS().some(r=>r.day===src)){toast('اليوم المختار ملوش جدول محفوظ.','warn');return}
-    openConfirm('نسخ الجدول','سيُستبدل جدول '+WD[day]+' بجدول '+WD[src]+'.','نسخ',true,()=>{fxCopyDay(src,day);toast('تم نسخ الجدول.');refresh()})},
-  fxClear(){const day=fxState().day;openConfirm('مسح جدول اليوم','سيتم مسح كل أسماء '+WD[day]+' من الجدول الثابت.','مسح',true,()=>{S.fixedSched=fxS().filter(r=>r.day!==day);commit();toast('تم مسح الجدول.');refresh()})},
-  fxPrint(){window.print()}
+  fxCopy(){const src=$('#fx-src').value,dst=fxState().doc;if(!src)return;if(!fxS().some(r=>r.doctorId===src)){toast('الدكتور المختار ملوش جدول محفوظ.','warn');return}
+    openConfirm('نسخ الجدول','سيُستبدل جدول '+docName(dst)+' بجدول '+docName(src)+' (الأيام المشتركة فقط).','نسخ',true,()=>{fxCopyDoc(src,dst);toast('تم نسخ الجدول.');refresh()})},
+  fxClear(){const dst=fxState().doc;openConfirm('مسح جدول الدكتور','سيتم مسح كل أسماء '.concat(docName(dst),' من الجدول الثابت.'),'مسح',true,()=>{S.fixedSched=fxS().filter(r=>r.doctorId!==dst);commit();toast('تم مسح الجدول.');refresh()})},
+  fxPrint(){window.print()},
+  removeTx(t){const id=t.dataset.tid,x=IDX.tx.get(id);if(!x)return;
+    askReason({title:'إزالة دفعة '+id,intro:'الدفعة هتتشال من الحسابات اليومية والشهرية والكلية ومن حساب المريض والتقارير. بتفضل مسجلة في سجل التعديلات وتقدر تسترجعها.',label:'إزالة',danger:true,required:false,reasonLabel:'سبب الإزالة (اختياري)',
+      info:()=>'<div class="note">'+esc(patName(x.patientId))+' · '+moneyT(x.amount)+' · '+dfmtT(x.date)+'</div>',onYes:(reason)=>{const r=removeTx(id,reason);return r.ok?{msg:r.msg}:{error:r.error}}})},
+  restoreTx(t){const r=restoreTx(t.dataset.tid);toast(r.ok?r.msg:r.error,r.ok?'':'bad');refresh()},
+  removeExp(t){const id=t.dataset.id,r=(S.expenses||[]).find(x=>x.id===id);if(!r)return;
+    openConfirm('إزالة مصروف','هيتشال المصروف «'+esc(r.text)+'» ('+nfmt(r.amount)+' EGP) من الحسابات اليومية والشهرية.','إزالة',true,()=>{S.expenses=S.expenses.filter(x=>x.id!==id);addDailyField(r.date,'expenses',-r.amount);logA('expense',id,'إزالة مصروف: '+r.text,[{field:'المبلغ',from:String(r.amount),to:'0'}],'');commit();toast('تمت إزالة المصروف.');refresh()})}
 });
-ADMIN_ACT.add('daAddPay');ADMIN_ACT.add('caseRate');
+['daAddPay','caseRate','removeTx','restoreTx','removeExp'].forEach(x=>ADMIN_ACT.add(x));
 Object.assign(IN,{
   dayDate(t){const k=t.dataset.k;if(validDate(t.value)){UI[k]=UI[k]||{};UI[k].date=t.value;refresh()}},
   asMonth(t){if(/^\d{4}-\d{2}$/.test(t.value)){UI.asm=t.value;refresh()}}
 });
 Object.assign(CH,{
   dtType(t){UI.dt=UI.dt||{date:todayISO()};UI.dt.type=t.value;refresh()},
-  fxCell(t){fxSave(t.dataset.d,t.dataset.t,t.value);const c=$('#fx-count');if(c)c.textContent=fxCount(fxState().day);const s=$('#fx-saved');if(s)s.textContent='تم الحفظ '+nowLocal().slice(11,16)}
+  fxDoc(t){fxState().doc=t.value;refresh()},
+  fxCell(t){fxSave(t.dataset.d,+t.dataset.day,t.dataset.t,t.value);const c=$('#fx-count');if(c)c.textContent=fxCount(t.dataset.d);const s=$('#fx-saved');if(s)s.textContent='تم الحفظ '+nowLocal().slice(11,16)}
 });
 document.addEventListener('click',e=>{
   if(!e.target.closest('.sbox'))hideSearch();
