@@ -629,7 +629,7 @@ function pickPurchase(pid){
 function buildSession(p,a,doctorId,date,time,at){
   const s={fak:!!(a&&a.fak&&hasFak(doctorId)),id:nid('s'),patientId:p.id,appointmentId:a?a.id:null,date,time,doctorId,schedDoctorId:a?a.schedDoctorId:doctorId,status:'active',createdAt:at||nowISO(),history:[]};
   if(p.category==='package'){
-    const u=pickPurchase(p.id);if(!u)return{error:'لا توجد جلسات متبقية في باقة هذا المريض. سجّل شراء أو تجديد باقة أولاً.'};
+    const u=pickPurchase(p.id);if(!u){Object.assign(s,{kind:'package',purchaseId:null,bucket:'ovf:'+p.id,value:0,rate:caseRate(p,doctorId),compMode:S.settings.compBasis,ovf:true});return{session:s}}
     const used=livePurchaseUse(u.id);let value=round2(u.price/u.sessions);
     if(used===u.sessions-1){let prior=0;for(const x of S.sessions)if(x.status==='active'&&x.purchaseId===u.id)prior+=x.value;value=round2(u.price-prior)}
     Object.assign(s,{kind:'package',purchaseId:u.id,bucket:u.id,value,rate:caseRate(p,doctorId),compMode:S.settings.compBasis});
@@ -656,17 +656,17 @@ function attendCore(appId,o){
   const r=buildSession(p,a,docId,date,time,o.at);
   if(r.error)return{ok:false,error:r.error};
   const s=r.session;s.history.push(hist('create','تسجيل جلسة بحضور المريض'));
-  S.sessions.push(s);
+  S.sessions.push(s);notifyPkg(p,s);
   a.status='attended';a.attendedAt=o.at||nowLocal();a.sessionId=s.id;a.doctorId=docId;
   a.history.push(hist('attend','حضر المريض وتم تسجيل الجلسة '+s.id+' عند '+docName(docId)));
   if(!o.silent){logA('session',s.id,'تسجيل حضور',[{field:'الموعد',from:'مجدول',to:'حضر'}],'',p.id);commit()}
-  return{ok:true,session:s,msg:'تم تسجيل الحضور والجلسة '+s.id};
+  return{ok:true,session:s,ovf:!!s.ovf,msg:s.ovf?'تم تسجيل الحضور بدون باقة — باقة المريض خلصت، اطلب منه التجديد.':(!pickPurchase(p.id)&&p.category==='package'?'تم تسجيل الحضور والجلسة '+s.id+' — وكانت آخر جلسة في باقة المريض.':'تم تسجيل الحضور والجلسة '+s.id)};
 }
 function unattendCore(appId,o){
   o=o||{};const a=S.appointments.find(x=>x.id===appId);if(!a)return{ok:false,error:'الموعد غير موجود.'};
   if(a.status!=='attended'||!a.sessionId)return{ok:false,error:'هذا الموعد غير مسجل كحاضر.'};
   const s=S.sessions.find(x=>x.id===a.sessionId);
-  if(s&&s.status==='active'){s.status='reversed';s.reversedAt=nowISO();s.reverseReason=o.reason||'';s.history.push(hist('reverse','تم عكس الجلسة (تصحيح حضور)',o.reason))}
+  if(s&&s.ovf)unnotifyPkg(s);if(s&&s.status==='active'){s.status='reversed';s.reversedAt=nowISO();s.reverseReason=o.reason||'';s.history.push(hist('reverse','تم عكس الجلسة (تصحيح حضور)',o.reason))}
   a.status=o.newStatus==='missed'?'missed':'scheduled';a.attendedAt=null;a.sessionId=null;
   a.history.push(hist('unattend','تم التراجع عن الحضور وعكس الجلسة '+(s?s.id:'')+' ← '+APP_L[a.status],o.reason));
   logA('session',s?s.id:a.id,'التراجع عن الحضور (عكس الجلسة وأجرها)',[{field:'الموعد',from:'حضر',to:APP_L[a.status]}],o.reason,a.patientId);
@@ -807,7 +807,7 @@ function createPurchase(d){
   if(!isFin()&&!canDo('pkg')){const kk=S.packages.find(x=>x.id===d.packageId);if(!kk)throw new Error(DENY);d=Object.assign({},d,{price:0,sessions:kk.sessions,paid:0})}
   const p=S.patients.find(x=>x.id===d.patientId);const k=S.packages.find(x=>x.id===d.packageId);
   const u={id:nid('pu'),patientId:p.id,packageId:k?k.id:null,name:k?k.name:(d.name||'باقة مخصصة'),sessions:Math.round(num(d.sessions!=null?d.sessions:(k?k.sessions:0))),price:num(d.price),listPrice:num(d.price),date:d.date||todayISO(),status:'active',note:d.note||'',history:[hist('create','شراء '+(k?k.name:'باقة')+' بسعر '+num(d.price))]};
-  S.purchases.push(u);
+  S.purchases.push(u);attachOverflow(u);
   const ch=[{field:'الباقة',from:'',to:u.name+' · '+u.sessions+' جلسات · '+u.price+' EGP'}];
   if(p.category!=='package'){ch.push({field:'الفئة',from:CAT_L[p.category],to:CAT_L.package});p.category='package'}
   const paid=num(d.paid);if(paid>0){mkTx({patientId:p.id,date:u.date,amount:round2(paid),type:'payment',method:d.method||METHODS[0],bucket:u.id,purchaseId:u.id,note:paid>=u.price?'دفع كامل':'دفعة أولى'});ch.push({field:'دفعة',from:'',to:paid+' EGP'})}
@@ -892,7 +892,7 @@ function ledgerRows(f){
     if(!inR(s.date))continue;if(f.patient&&p.id!==f.patient)continue;if(f.doctor&&s.doctorId!==f.doctor)continue;
     const u=s.purchaseId?IDX.pur.get(s.purchaseId):null;if(f.pkg&&(!u||u.packageId!==f.pkg))continue;
     const c=sessionComp(s);
-    rows.push({kind:'ses',id:s.id,date:s.date,time:s.time,createdAt:s.createdAt,patientId:p.id,type:isFree?'free':'session',cash:0,basis:isFree?s.basis:s.value,rate:s.rate,eligible:c.eligible,doctorComp:c.doctor,center:isFree?-c.cost:c.center,doctorId:s.doctorId,method:'',status:'منفذة',related:(u?u.name:isFree?'جلسة مجانية':'دفع بالجلسة'),note:(s.doctorId!==s.schedDoctorId?'بديل عن '+docName(s.schedDoctorId):'')+(!isFree&&c.unfunded>0?(s.doctorId!==s.schedDoctorId?' · ':'')+'غير مغطّاة بالدفع: '+c.unfunded:'')})}
+    rows.push({kind:'ses',id:s.id,date:s.date,time:s.time,createdAt:s.createdAt,patientId:p.id,type:isFree?'free':'session',cash:0,basis:isFree?s.basis:s.value,rate:s.rate,eligible:c.eligible,doctorComp:c.doctor,center:isFree?-c.cost:c.center,doctorId:s.doctorId,method:'',status:'منفذة',related:(u?u.name:isFree?'جلسة مجانية':(s.ovf?'جلسة بدون باقة':'دفع بالجلسة')),note:(s.doctorId!==s.schedDoctorId?'بديل عن '+docName(s.schedDoctorId):'')+(!isFree&&c.unfunded>0?(s.doctorId!==s.schedDoctorId?' · ':'')+'غير مغطّاة بالدفع: '+c.unfunded:'')})}
   rows.sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(a.time<b.time?1:a.time>b.time?-1:0));
   return rows;
 }
@@ -1175,7 +1175,7 @@ function validState(o){return o&&o.v===2&&Array.isArray(o.patients)&&Array.isArr
 function _loadState(){
   const info={note:'',migrated:false};
   const raw=LS.get(KEY);
-  if(raw){try{const o=JSON.parse(raw);if(validState(o)&&o.dataVer!==DATA_VER&&!SB_ON){seedReal();save();info.note='تم تحديث البيانات تلقائياً إلى آخر نسخة من الإكسل (النسخة المحفوظة في المتصفح كانت أقدم).';return info}if(validState(o)){o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];S=o;buildIdx();return info}info.note='تعذر قراءة البيانات المحفوظة (بنية غير مدعومة). تم تحميل بيانات المركز الأصلية.'}catch(e){info.note='تعذر قراءة البيانات المحفوظة. تم تحميل بيانات المركز الأصلية.'}}
+  if(raw){try{const o=JSON.parse(raw);if(validState(o)&&o.dataVer!==DATA_VER&&!SB_ON){seedReal();save();info.note='تم تحديث البيانات تلقائياً إلى آخر نسخة من الإكسل (النسخة المحفوظة في المتصفح كانت أقدم).';return info}if(validState(o)){o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.notifs=o.notifs||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];S=o;buildIdx();return info}info.note='تعذر قراءة البيانات المحفوظة (بنية غير مدعومة). تم تحميل بيانات المركز الأصلية.'}catch(e){info.note='تعذر قراءة البيانات المحفوظة. تم تحميل بيانات المركز الأصلية.'}}
   else{const old=LS.get(KEY_OLD);
     if(old){try{const o=JSON.parse(old);if(o&&o.v===1&&Array.isArray(o.clients)){migrateV1(o);info.migrated=true;info.note='تم ترحيل بياناتك السابقة إلى النظام الجديد (المرضى المركزيون والمواعيد). النسخة القديمة لم تُحذف.';save();return info}}catch(e){info.note='تعذر ترحيل البيانات السابقة، تم تحميل بيانات المركز الأصلية.'}}}
   seedReal();save();return info;
@@ -1310,6 +1310,45 @@ function migrate52(){
   logA('system','mig52','تحديث v52: '+msgs.join(' · '),[],'');
   buildIdx();save();
 }
+/* ===== v53: attendance after the package is finished + notifications ===== */
+function notifS(){return S.notifs=S.notifs||[]}
+function notifyPkg(p,s){
+  if(p.category!=='package')return;
+  const ovf=!!s.ovf;if(!ovf&&pickPurchase(p.id))return;
+  const l=notifS(),id='ZN-'+p.id;let n=l.find(x=>x.id===id);
+  if(!n){n={id,patientId:p.id,kind:ovf?'ovf':'done',count:0,done:false};l.push(n)}
+  if(n.done){n.done=false;n.count=0;n.kind=ovf?'ovf':'done'}
+  if(ovf){n.kind='ovf';n.count=(n.count||0)+1}
+  n.ts=nowISO();n.last=s.date;
+}
+function unnotifyPkg(s){
+  const n=notifS().find(x=>x.id==='ZN-'+s.patientId);if(!n||n.kind!=='ovf')return;
+  n.count=Math.max(0,(n.count||0)-1);if(n.count===0){n.kind='done'}
+}
+function attachOverflow(u){
+  const ov=S.sessions.filter(s=>s.patientId===u.patientId&&s.status==='active'&&s.ovf&&!s.purchaseId).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.time||'')<(b.time||'')?-1:1);
+  let n=0,prior=0;
+  for(const s of ov){
+    if(n>=u.sessions)break;
+    let v=round2(u.price/u.sessions);if(n===u.sessions-1)v=round2(u.price-prior);
+    s.purchaseId=u.id;s.bucket=u.id;s.value=v;delete s.ovf;prior+=v;n++;
+    (s.history=s.history||[]).push(hist('attach','ربط الجلسة بباقة '+u.id+' بعد التجديد'));
+  }
+  if(n)logA('purchase',u.id,'ربط '+n+' جلسة بدون باقة بالباقة الجديدة',[{field:'جلسات اتربطت',from:'0',to:String(n)}],'',u.patientId);
+  const nt=notifS().find(x=>x.id==='ZN-'+u.patientId);
+  buildIdx();
+  if(nt&&pickPurchase(u.patientId)){nt.done=true}
+  return n;
+}
+function openNotifs(){return notifS().filter(n=>!n.done&&IDX.pat.has(n.patientId)&&pdOf(n.patientId).remaining<=0)}
+function pkgBanner(){
+  if(!(CUR&&(CUR.role==='admin'||CUR.role==='reception')))return '';
+  const l=openNotifs().sort((a,b)=>(a.ts||'')<(b.ts||'')?1:-1);if(!l.length)return '';
+  const all=!!UI.nAll,show=all?l:l.slice(0,4);
+  return '<section class="card" style="border-inline-start:4px solid var(--warn,#d97706)"><div class="acts" style="align-items:center"><h2 style="margin:0">⚠ باقات خلصت ('+l.length+')</h2><span style="flex:1"></span>'+(l.length>4?'<button class="btn sm" data-act="notifAll">'+(all?'إخفاء الباقي':'عرض الكل')+'</button>':'')+'</div>'+
+    '<ul class="list">'+show.map(n=>{const p=IDX.pat.get(n.patientId);
+      return '<li><span class="m"><b><button class="link" data-act="openPanel" data-id="'+p.id+'">'+esc(p.name)+'</button></b><span class="muted sm-t">'+(n.kind==='ovf'?'حضر '+n.count+' جلسة بدون باقة — محتاج تجديد':'خلّص آخر جلسة في باقته — محتاج تجديد')+' · '+esc(docName(p.doctorId))+'</span></span><span class="acts"><button class="btn sm primary" data-act="buyPackage" data-id="'+p.id+'">تجديد باقة</button><button class="btn sm" data-act="notifHide" data-id="'+n.id+'">إخفاء</button></span></li>'}).join('')+'</ul></section>';
+}
 function loadState(){const i=_loadState();migrateV24();migrateV33();migrateV50();migrateSched1119();migrate52();if(S.center==='مركز التعافي'||!S.center){S.center='SCOLIO';save()}return i}
 function removeDemo(){need('admin');
   const ids=new Set(S.patients.filter(p=>p.demo).map(p=>p.id));
@@ -1320,7 +1359,7 @@ function removeDemo(){need('admin');
 }
 function resetAll(){need('admin');seedReal();save();return true}
 function exportJSON(){need('admin');return JSON.stringify(S)}
-function importJSON(text){need('admin');try{const o=JSON.parse(text);if(!validState(o))return{ok:false,error:'الملف غير صالح أو من إصدار غير مدعوم.'};o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];o.dataVer=DATA_VER;S=o;buildIdx();migrate52();logA('system','restore','استعادة نسخة احتياطية',[]);commit();return{ok:true}}catch(e){return{ok:false,error:'تعذر قراءة الملف (JSON غير صحيح).'}}}
+function importJSON(text){need('admin');try{const o=JSON.parse(text);if(!validState(o))return{ok:false,error:'الملف غير صالح أو من إصدار غير مدعوم.'};o.absences=o.absences||[];o.fixedSched=o.fixedSched||[];o.notifs=o.notifs||[];o.payouts=o.payouts||[];o.audit=o.audit||[];o.expenses=o.expenses||[];o.exams=o.exams||[];o.daily=o.daily||[];o.monthly=o.monthly||[];o.braces=o.braces||[];o.docAtt=o.docAtt||[];o.dataVer=DATA_VER;S=o;buildIdx();migrate52();logA('system','restore','استعادة نسخة احتياطية',[]);commit();return{ok:true}}catch(e){return{ok:false,error:'تعذر قراءة الملف (JSON غير صحيح).'}}}
 
 /* =====================================================================
    Accounts and permissions.
@@ -1871,7 +1910,7 @@ function attendToggle(id,checked,box){
   if(checked&&CUR&&CUR.role==='reception'&&a.status!=='attended'){a.secAtt=true;(a.history=a.history||[]).push(hist('secAtt','سجّلت السكرتارية حضور المريض'));
     if(!a.docAtt){logA('appointment',a.id,'السكرتارية سجّلت حضور '+patName(a.patientId)+' — بانتظار الطبيب',[],'',a.patientId);commit();toast('تم تسجيل حضور المريض من السكرتارية — بانتظار تأكيد الطبيب.');refresh();return}}
   if(!checked&&a.status!=='attended'&&a.secAtt){a.secAtt=false;commit();refresh();return}
-  if(checked){const r=attendCore(id,{});if(!r.ok)toast(r.error,'warn');else toast(r.msg,r.dup?'warn':'');refresh();return}
+  if(checked){const r=attendCore(id,{});if(!r.ok)toast(r.error,'warn');else toast(r.msg,(r.dup||r.ovf)?'warn':'');refresh();return}
   if(box)box.checked=true;
   askReason({title:'التراجع عن حضور المريض',intro:'سيُعكس تسجيل الجلسة (تبقى محفوظة في السجل) ويُعاد احتساب الجلسات المتبقية وأجر الطبيب والملخصات المالية.',label:'تأكيد التراجع',
     draft:{newStatus:'scheduled'},fields:()=>[{k:'newStatus',label:'تصبح حالة الموعد',type:'select',options:[{v:'scheduled',l:'مجدول'},{v:'missed',l:'لم يحضر'}]}],
@@ -2867,7 +2906,7 @@ function render(){
   let h='';
   if(!viewAllowed(UI.view)||((UI.view==='finance'||UI.view==='monthly'||UI.view==='debtors'||UI.view==='confirmpart'||UI.view==='merge')&&!canDo('money'))||(UI.view==='arrears'&&!(CUR&&CUR.role==='reception'))||((UI.view==='dailyacc'||UI.view==='dailytx')&&!canDo('admin')))UI.view='dashboard';
   switch(UI.view){case'patients':case'archived':h=patientsHTML();break;case'braces':h=bracesHTML();break;case'doctors':h=doctorsHTML();break;case'doctor':h=doctorHTML();break;case'dayplan':h=dayPlanHTML();break;case'weekly':h=weeklyHTML();break;case'todayexp':h=todayExpHTML();break;case'calendar':h=calendarHTML();break;case'exams':h=examsHTML();break;case'packages':h=packagesHTML();break;case'debtors':h=canDo('money')?debtorsHTML():dashHTML();break;case'arrears':h=debtorsHTML();break;case'confirmpart':h=canDo('money')?confirmPartHTML():dashHTML();break;case'merge':h=canDo('admin')?mergeHTML():dashHTML();break;case'finance':h=financeHTML();break;case'dailyacc':h=dailyaccHTML();break;case'dailytx':h=dailytxHTML();break;case'fixed':h=fixedHTML();break;case'monthly':h=monthlyHTML();break;case'reports':h=reportsHTML();break;case'settings':h=settingsHTML();break;case'account':h='<div class="page-head"><div><h1>حسابي</h1></div></div>'+myAccountCard();break;default:h=dashHTML()}
-  m.innerHTML=h;
+  m.innerHTML=pkgBanner()+h;
   if(UI.view==='patients'||UI.view==='archived')renderPatTable();
   if(UI.view==='braces')renderBraceTable();
   renderPanel();renderModal();
@@ -3009,6 +3048,10 @@ const CH={mergeKeep(t){const M=UI.merge;if(!M)return;M.keep=t.value;refresh()},
   ff(t){const k=t.dataset.fk,d=UI.draft;d[k]=t.type==='checkbox'?t.checked:t.value;UI.ack=false;UI.warn=[];delete UI.errors[k];if(UI.form&&UI.form.onChange)UI.form.onChange(d,k);renderModal()}
 };
 Object.assign(CH,EXTRA_CH);
+Object.assign(ACT,{
+  notifHide(t){const n=notifS().find(x=>x.id===t.dataset.id);if(n){n.done=true;commit();refresh()}},
+  notifAll(){UI.nAll=!UI.nAll;refresh()}
+});
 /* =====================================================================
    v51: daily accounts, daily transactions, fixed schedule, case rate,
    secretary package price, doctor attendance summary, braces dates
@@ -3415,7 +3458,7 @@ const SYNC=(function(){
     if(k==='state')return S?JSON.stringify(S):LS.get(KEY);
     return USERS?JSON.stringify(USERS):LS.get(UKEY);
   }
-  function normState(o){['absences','payouts','audit','expenses','exams','daily','monthly','braces','docAtt','fixedSched'].forEach(c=>{o[c]=o[c]||[]});return o}
+  function normState(o){['absences','payouts','audit','expenses','exams','daily','monthly','braces','docAtt','fixedSched','notifs'].forEach(c=>{o[c]=o[c]||[]});return o}
   function adopt(k,obj){
     if(k==='state'){normState(obj);LS.set(KEY,JSON.stringify(obj));if(S){S=obj;buildIdx()}}
     else{LS.set(UKEY,JSON.stringify(obj));if(USERS)USERS=obj}
