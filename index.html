@@ -634,11 +634,11 @@ function buildSession(p,a,doctorId,date,time,at){
     if(used===u.sessions-1){let prior=0;for(const x of S.sessions)if(x.status==='active'&&x.purchaseId===u.id)prior+=x.value;value=round2(u.price-prior)}
     Object.assign(s,{kind:'package',purchaseId:u.id,bucket:u.id,value,rate:caseRate(p,doctorId),compMode:S.settings.compBasis});
   }else if(p.category==='persession'){
-    if(!(p.perSessionPrice>0))return{error:'حدد سعر الجلسة لهذا المريض من بياناته أولاً.'};
-    Object.assign(s,{kind:'pps',purchaseId:null,bucket:'pps:'+p.id,value:p.perSessionPrice,rate:caseRate(p,doctorId),compMode:S.settings.compBasis});
+    if(!(p.perSessionPrice>0))s.noPrice=true;
+    Object.assign(s,{kind:'pps',purchaseId:null,bucket:'pps:'+p.id,value:p.perSessionPrice||0,rate:caseRate(p,doctorId),compMode:S.settings.compBasis});
   }else{
     const done=S.sessions.filter(x=>x.patientId===p.id&&x.status==='active'&&x.kind==='free').length;
-    if(p.authorized>0&&done>=p.authorized)return{error:'اكتملت الجلسات المصرّح بها لهذا المريض ('+p.authorized+'). زد عدد الجلسات المصرّح بها أولاً.'};
+    if(p.authorized>0&&done>=p.authorized)s.over=true;
     const f=freeComp(doctorId);
     Object.assign(s,{kind:'free',purchaseId:null,bucket:'free:'+p.id,value:0,rate:caseRate(p,doctorId),compMode:S.settings.compBasis,basis:f.basis,freeMode:f.mode,comp:f.comp,cost:f.cost});
   }
@@ -660,13 +660,13 @@ function attendCore(appId,o){
   a.status='attended';a.attendedAt=o.at||nowLocal();a.sessionId=s.id;a.doctorId=docId;
   a.history.push(hist('attend','حضر المريض وتم تسجيل الجلسة '+s.id+' عند '+docName(docId)));
   if(!o.silent){logA('session',s.id,'تسجيل حضور',[{field:'الموعد',from:'مجدول',to:'حضر'}],'',p.id);commit()}
-  return{ok:true,session:s,ovf:!!s.ovf,msg:s.ovf?'تم تسجيل الحضور بدون باقة — باقة المريض خلصت، اطلب منه التجديد.':(!pickPurchase(p.id)&&p.category==='package'?'تم تسجيل الحضور والجلسة '+s.id+' — وكانت آخر جلسة في باقة المريض.':'تم تسجيل الحضور والجلسة '+s.id)};
+  return{ok:true,session:s,ovf:!!(s.ovf||s.over||s.noPrice),msg:attMsg(p,s)};
 }
 function unattendCore(appId,o){
   o=o||{};const a=S.appointments.find(x=>x.id===appId);if(!a)return{ok:false,error:'الموعد غير موجود.'};
   if(a.status!=='attended'||!a.sessionId)return{ok:false,error:'هذا الموعد غير مسجل كحاضر.'};
   const s=S.sessions.find(x=>x.id===a.sessionId);
-  if(s&&s.ovf)unnotifyPkg(s);if(s&&s.status==='active'){s.status='reversed';s.reversedAt=nowISO();s.reverseReason=o.reason||'';s.history.push(hist('reverse','تم عكس الجلسة (تصحيح حضور)',o.reason))}
+  if(s&&(s.ovf||s.over||s.noPrice))unnotifyPkg(s);if(s&&s.status==='active'){s.status='reversed';s.reversedAt=nowISO();s.reverseReason=o.reason||'';s.history.push(hist('reverse','تم عكس الجلسة (تصحيح حضور)',o.reason))}
   a.status=o.newStatus==='missed'?'missed':'scheduled';a.attendedAt=null;a.sessionId=null;
   a.history.push(hist('unattend','تم التراجع عن الحضور وعكس الجلسة '+(s?s.id:'')+' ← '+APP_L[a.status],o.reason));
   logA('session',s?s.id:a.id,'التراجع عن الحضور (عكس الجلسة وأجرها)',[{field:'الموعد',from:'حضر',to:APP_L[a.status]}],o.reason,a.patientId);
@@ -1313,17 +1313,23 @@ function migrate52(){
 /* ===== v53: attendance after the package is finished + notifications ===== */
 function notifS(){return S.notifs=S.notifs||[]}
 function notifyPkg(p,s){
-  if(p.category!=='package')return;
-  const ovf=!!s.ovf;if(!ovf&&pickPurchase(p.id))return;
+  const kind=s.ovf?'ovf':s.over?'over':s.noPrice?'noprice':(p.category==='package'&&!pickPurchase(p.id)?'done':'');
+  if(!kind)return;
   const l=notifS(),id='ZN-'+p.id;let n=l.find(x=>x.id===id);
-  if(!n){n={id,patientId:p.id,kind:ovf?'ovf':'done',count:0,done:false};l.push(n)}
-  if(n.done){n.done=false;n.count=0;n.kind=ovf?'ovf':'done'}
-  if(ovf){n.kind='ovf';n.count=(n.count||0)+1}
+  if(!n){n={id,patientId:p.id,kind,count:0,done:false};l.push(n)}
+  if(n.done){n.done=false;n.count=0;n.kind=kind}
+  if(kind!=='done'){n.kind=kind;n.count=(n.count||0)+1}
   n.ts=nowISO();n.last=s.date;
 }
 function unnotifyPkg(s){
-  const n=notifS().find(x=>x.id==='ZN-'+s.patientId);if(!n||n.kind!=='ovf')return;
-  n.count=Math.max(0,(n.count||0)-1);if(n.count===0){n.kind='done'}
+  const n=notifS().find(x=>x.id==='ZN-'+s.patientId);if(!n||n.kind==='done')return;
+  n.count=Math.max(0,(n.count||0)-1);if(n.count===0){n.kind='done';if(!s.ovf)n.done=true}
+}
+function attMsg(p,s){
+  if(s.ovf)return 'تم تسجيل الحضور بدون باقة — باقة المريض خلصت، اطلب منه التجديد.';
+  if(s.over)return 'تم تسجيل الحضور — تجاوز عدد الجلسات المصرّح بها.';
+  if(s.noPrice)return 'تم تسجيل الحضور — سعر الجلسة غير محدد في بيانات المريض.';
+  return 'تم تسجيل الحضور والجلسة '+s.id+(p.category==='package'&&!pickPurchase(p.id)?' — وكانت آخر جلسة في باقة المريض.':'');
 }
 function attachOverflow(u){
   const ov=S.sessions.filter(s=>s.patientId===u.patientId&&s.status==='active'&&s.ovf&&!s.purchaseId).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.time||'')<(b.time||'')?-1:1);
@@ -1340,14 +1346,14 @@ function attachOverflow(u){
   if(nt&&pickPurchase(u.patientId)){nt.done=true}
   return n;
 }
-function openNotifs(){return notifS().filter(n=>!n.done&&IDX.pat.has(n.patientId)&&pdOf(n.patientId).remaining<=0)}
+function openNotifs(){return notifS().filter(n=>!n.done&&IDX.pat.has(n.patientId)&&((n.kind!=='ovf'&&n.kind!=='done')||pdOf(n.patientId).remaining<=0))}
 function pkgBanner(){
   if(!(CUR&&(CUR.role==='admin'||CUR.role==='reception')))return '';
   const l=openNotifs().sort((a,b)=>(a.ts||'')<(b.ts||'')?1:-1);if(!l.length)return '';
   const all=!!UI.nAll,show=all?l:l.slice(0,4);
-  return '<section class="card" style="border-inline-start:4px solid var(--warn,#d97706)"><div class="acts" style="align-items:center"><h2 style="margin:0">⚠ باقات خلصت ('+l.length+')</h2><span style="flex:1"></span>'+(l.length>4?'<button class="btn sm" data-act="notifAll">'+(all?'إخفاء الباقي':'عرض الكل')+'</button>':'')+'</div>'+
+  return '<section class="card" style="border-inline-start:4px solid var(--warn,#d97706)"><div class="acts" style="align-items:center"><h2 style="margin:0">⚠ تنبيهات حضور ('+l.length+')</h2><span style="flex:1"></span>'+(l.length>4?'<button class="btn sm" data-act="notifAll">'+(all?'إخفاء الباقي':'عرض الكل')+'</button>':'')+'</div>'+
     '<ul class="list">'+show.map(n=>{const p=IDX.pat.get(n.patientId);
-      return '<li><span class="m"><b><button class="link" data-act="openPanel" data-id="'+p.id+'">'+esc(p.name)+'</button></b><span class="muted sm-t">'+(n.kind==='ovf'?'حضر '+n.count+' جلسة بدون باقة — محتاج تجديد':'خلّص آخر جلسة في باقته — محتاج تجديد')+' · '+esc(docName(p.doctorId))+'</span></span><span class="acts"><button class="btn sm primary" data-act="buyPackage" data-id="'+p.id+'">تجديد باقة</button><button class="btn sm" data-act="notifHide" data-id="'+n.id+'">إخفاء</button></span></li>'}).join('')+'</ul></section>';
+      return '<li><span class="m"><b><button class="link" data-act="openPanel" data-id="'+p.id+'">'+esc(p.name)+'</button></b><span class="muted sm-t">'+(n.kind==='ovf'?'حضر '+n.count+' جلسة بدون باقة — محتاج تجديد':n.kind==='over'?'حضر '+n.count+' جلسة بعد انتهاء الجلسات المصرّح بها':n.kind==='noprice'?'حضر '+n.count+' جلسة وسعر الجلسة غير محدد':'خلّص آخر جلسة في باقته — محتاج تجديد')+' · '+esc(docName(p.doctorId))+'</span></span><span class="acts">'+(n.kind==='ovf'||n.kind==='done'?'<button class="btn sm primary" data-act="buyPackage" data-id="'+p.id+'">تجديد باقة</button>':'<button class="btn sm primary" data-act="openPanel" data-id="'+p.id+'">فتح الملف</button>')+'<button class="btn sm" data-act="notifHide" data-id="'+n.id+'">إخفاء</button></span></li>'}).join('')+'</ul></section>';
 }
 function loadState(){const i=_loadState();migrateV24();migrateV33();migrateV50();migrateSched1119();migrate52();if(S.center==='مركز التعافي'||!S.center){S.center='SCOLIO';save()}return i}
 function removeDemo(){need('admin');
