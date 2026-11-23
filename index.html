@@ -1415,7 +1415,7 @@ function dayBookHTML(){
     if(it.kind==='ses'||it.kind==='pay'){
       const p=IDX.pat.get(it.pid);c1='<button class="link" data-act="openPanel" data-id="'+it.pid+'">'+esc(p.name)+'</button>';
       c2=esc(docName(it.kind==='ses'?it.s.doctorId:p.doctorId));c3=payCellHTML(it);
-      c5='<button class="btn sm" data-act="daAddPay" data-pid="'+it.pid+'">'+ic('plus',14)+' دفعة</button>'}
+      c5='<button class="btn sm" data-act="daAddPay" data-pid="'+it.pid+'">'+ic('plus',14)+' دفعة</button>'+(canDo('admin')?'<button class="ib" data-act="daChangePat" data-id="'+it.id+'" data-kind="'+it.kind+'" aria-label="تغيير المريض" title="تغيير المريض">'+ic('edit',14)+'</button>':'')}
     else if(it.kind==='exm'){c1=esc(examName(it.e))+' <span class="b partial">كشف</span>';c2=esc(docName(it.e.doctorId));c3=money(it.e.amount);c5='<button class="ib" data-act="editExam" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="cancelExam" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
     else if(it.kind==='exp'){c1='<span class="muted">مصروف</span>';c4=esc(it.x.text)+' · '+money(it.x.amount);c5='<button class="ib" data-act="editExp" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="removeExp" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
     else if(it.kind==='adj'){c1=esc(it.a.label||'بدون مريض')+' <span class="b partial">بدون مريض</span>';c3=money(it.a.amount)+' <span class="muted sm-t">'+esc(it.a.method||'')+'</span>';c5='<button class="ib" data-act="editAdj" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="removeAdj" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
@@ -1442,7 +1442,7 @@ function fixedHTML(){
   const days=fxDays(d),slots=slotsList(d.start,d.end),map=new Map(fxS().map(r=>[r.id,r]));
   h+='<section class="card"><div class="acts" style="flex-wrap:wrap;align-items:center;margin-bottom:10px"><label class="muted" for="fx-doc">الدكتور</label><select class="sel" id="fx-doc" data-ch="fxDoc" style="min-width:180px">'+docs.map(x=>'<option value="'+x.id+'"'+(x.id===d.id?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select>'+
     '<span class="muted"><b id="fx-count">'+fxCount(d.id)+'</b> مريض في الأسبوع · <span id="fx-saved"></span></span><span style="flex:1"></span>'+
-    '<select class="sel" id="fx-src" aria-label="نسخ من دكتور">'+docs.filter(x=>x.id!==d.id).map(x=>'<option value="'+x.id+'">'+esc(x.name)+'</option>').join('')+'</select><button class="btn sm" data-act="fxCopy">نسخ جدوله</button><button class="btn sm danger" data-act="fxClear">مسح جدول '+esc(d.name)+'</button></div>';
+    '<button class="btn sm danger" data-act="fxClear">مسح جدول '+esc(d.name)+'</button></div>';
   if(!days.length)return h+empty('الدكتور ده مفيش له أيام عمل')+'</section>';
   h+='<div class="tw" style="max-height:none"><table class="xl w" style="min-width:'+(110+slots.length*150)+'px"><thead><tr><th>اليوم</th>'+slots.map(t=>'<th>'+tfmtT(t)+'</th>').join('')+'</tr></thead><tbody>';
   for(const i of days){h+='<tr><td><b>'+WD[i]+'</b></td>'+slots.map(t=>{const r=map.get(fxId(i,d.id,t));return '<td style="padding:4px"><textarea class="inp" rows="3" style="width:100%;min-width:130px" data-ch="fxCell" data-d="'+d.id+'" data-day="'+i+'" data-t="'+t+'" aria-label="'+WD[i]+' '+t+'">'+esc(r?r.text:'')+'</textarea></td>'}).join('')+'</tr>'}
@@ -3187,6 +3187,38 @@ EXTRA_ACT.docLeaveNow=function(t){const r=(S.docAtt||[]).find(x=>x.id===t.datase
 EXTRA_ACT.saveBraceCfg=function(){const e=num($('#bc-eur').value),r=num($('#bc-rate').value);if(!(e>=0)||!(r>0)){toast('أدخل تكلفة وسعر يورو صحيحين.','bad');return}const c=braceCfg();if(r!==c.rate){c.ts=nowISO();c.auto=false}c.eur=e;c.rate=r;commit();toast('تم حفظ تكلفة التصنيع.');refresh()};
 EXTRA_ACT.refreshEur=function(){fetchEurRate(true).then(v=>{if(v){toast('تم تحديث السعر: 1 EUR = '+v+' EGP.');refresh()}})};
 ADMIN_ACT.add('saveBraceCfg');ADMIN_ACT.add('refreshEur');
+/* ===== admin: change the patient of a daily-book row ===== */
+function movePay(t,np){t.patientId=np.id;const u=payBucketFor(np);t.bucket=u?u.id:'pps:'+np.id;t.purchaseId=u?u.id:null}
+function moveSessionToPatient(s,np){
+  unnotifyPkg(s);
+  const keep=s.status;s.status='void';
+  const a=s.appointmentId?S.appointments.find(x=>x.id===s.appointmentId):null;
+  const r=buildSession(np,a,s.doctorId,s.date,s.time,s.createdAt);
+  s.status=keep;S.seq.s=Math.max(0,(S.seq.s||0)-1);
+  const n=r.session;
+  for(const k of ['ovf','over','noPrice','basis','freeMode','comp','cost'])delete s[k];
+  for(const k of ['kind','purchaseId','bucket','value','rate','compMode','ovf','over','noPrice','basis','freeMode','comp','cost'])if(n[k]!==undefined)s[k]=n[k];
+  s.patientId=np.id;
+  if(a){a.patientId=np.id}
+  notifyPkg(np,s);
+}
+function openChangeDayPat(it){
+  const old=patById(it.pid);if(!old)return;
+  const pays=(it.pays||[]).filter(t=>t.patientId===old.id);
+  openForm({title:'تغيير المريض — '+old.name,submit:'حفظ',draft:{patientId:'',movePays:true},
+    fields:()=>[{type:'html',html:()=>'<div class="note">المريض الحالي: <b>'+esc(old.name)+'</b><span class="idc">'+old.id+'</span></div>'},
+      {k:'patientId',label:'المريض الجديد (ابحث بالاسم أو الرقم أو الهاتف)',type:'patsearch',full:true,req:true}]
+      .concat(it.s&&pays.length?[{k:'movePays',label:'نقل دفعات هذا اليوم لنفس المريض',type:'checkbox'}]:[]),
+    validate(d){const e={};if(d.patientId===old.id)e.patientId='اختر مريضاً مختلفاً.';return{errors:e}},
+    onSave(d){const np=patById(d.patientId);if(!np)return{error:'اختر المريض.'};if(np.id===old.id)return{error:'اختر مريضاً مختلفاً.'};
+      if(it.s)moveSessionToPatient(it.s,np);
+      if(!it.s||d.movePays)for(const t of pays)movePay(t,np);
+      logA('daily',it.date||UI.da.date,'تغيير مريض في الحسابات اليومية',[{field:'المريض',from:old.name+' ('+old.id+')',to:np.name+' ('+np.id+')'}],'',np.id);
+      commit();return{msg:'تم تغيير المريض إلى '+np.name+'.'}}});
+}
+ACT.daChangePat=function(t){const it=dayItems(UI.da.date).find(x=>x.id===t.dataset.id&&x.kind===t.dataset.kind);if(it)openChangeDayPat(it)};
+ADMIN_ACT.add('daChangePat');
+
 Object.assign(ACT,EXTRA_ACT);
 const IN={mergeQ(t){UI.merge=UI.merge||{q:'',sel:[],keep:'',name:'',touched:false};UI.merge.q=t.value;const el=$('#merge-res');if(el)el.innerHTML=mergeResHTML()},mergeName(t){UI.merge=UI.merge||{q:'',sel:[],keep:'',name:'',touched:false};UI.merge.touched=true;UI.merge.name=t.value},
   gs(t){UI.gq=t.value;const box=t.closest('.sbox');$$('.sbox input').forEach(i=>{if(i!==t)i.value=UI.gq});renderSearchResults(box,UI.gq)},
@@ -3372,7 +3404,7 @@ function dailytxHTML(){
 /* ---------- fixed schedule (secretary + admin): doctor on top, week below ---------- */
 function fxS(){return S.fixedSched=S.fixedSched||[]}
 function fxId(day,did,time){return 'FX-'+day+'-'+did+'-'+String(time).replace(':','')}
-function fxDocsAll(){return S.doctors.filter(d=>d.active&&!d.examOnly)}
+function fxDocsAll(){return S.doctors.filter(d=>d.active)}
 function fxState(){UI.fx=UI.fx||{doc:null};const l=fxDocsAll();if(!UI.fx.doc||!l.some(d=>d.id===UI.fx.doc))UI.fx.doc=l.length?l[0].id:null;return UI.fx}
 function fxDays(d){const wd=S.settings.workDays||[6,0,1,2,3,4];return wd.filter(i=>(d.workDays||[]).includes(i))}
 function fxLines(t){return String(t||'').split('\n').map(x=>x.trim()).filter(Boolean)}
