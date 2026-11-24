@@ -1903,7 +1903,7 @@ function panelHTML(p){
   let h='<div class="mh"><div><h2>'+esc(p.name)+'<span class="idc">'+p.id+'</span></h2><p class="muted">'+CAT_L[p.category]+' · '+badgePat(p.status)+(p.demo?' <span class="chip">تجريبي</span>':'')+debtBadge(p)+'</p></div><button class="ib" data-act="closePanel" aria-label="إغلاق">'+ic('x')+'</button></div>';
   {const _x=debtInfo(p);if(_x&&_x.half&&canDo('money'))h+='<div class="alert"><span>⚠ <b>تحذير:</b> أتمّ المريض '+_x.done+' من '+_x.tot+' جلسة (الباقة الحالية) وما زال عليه <b>'+money(_x.d.outstanding)+'</b> للمركز.</span></div>';}
   {const _o=pdOf(p.id).over;if(false)h+='<div class="note"><span>💰 <b>دفع زيادة:</b> المريض دفع <b>'+money(_o)+'</b> أكثر من المطلوب منه (يظهر للمدير فقط).</span></div>';}
-  h+='<div class="mf"><button class="btn primary" data-act="newApptFor" data-id="'+p.id+'">'+ic('cal',16)+' حجز موعد</button><button class="btn" data-act="editPatient" data-id="'+p.id+'">'+ic('edit',16)+' تعديل البيانات</button>'+(canDo('admin')?'<button class="btn" data-act="caseRate" data-id="'+p.id+'">نسبة الدكتور'+(p.docRate!=null?' ('+Math.round(p.docRate*100)+'%)':'')+'</button>':'')+(canDo('pkg')&&!isFin()&&p.category==='package'?'<button class="btn" data-act="setPkgPrice" data-id="'+p.id+'">تعديل سعر الباقة</button>':'')+''+
+  h+='<div class="mf"><button class="btn primary" data-act="newApptFor" data-id="'+p.id+'">'+ic('cal',16)+' حجز موعد</button><button class="btn" data-act="editPatient" data-id="'+p.id+'">'+ic('edit',16)+' تعديل البيانات</button><button class="btn" data-act="patExam" data-id="'+p.id+'">'+ic('plus',16)+' تسجيل كشف</button>'+(canDo('admin')?'<button class="btn" data-act="caseRate" data-id="'+p.id+'">نسبة الدكتور'+(p.docRate!=null?' ('+Math.round(p.docRate*100)+'%)':'')+'</button>':'')+(canDo('pkg')&&!isFin()&&p.category==='package'?'<button class="btn" data-act="setPkgPrice" data-id="'+p.id+'">تعديل سعر الباقة</button>':'')+''+
     (p.category!=='free'?'<button class="btn" data-act="buyPackage" data-id="'+p.id+'">'+ic('pkg',16)+' شراء / تجديد باقة</button>'+(canDo('pay')?'<button class="btn" data-act="addPay" data-id="'+p.id+'">'+ic('plus',16)+' تسجيل دفعة</button>':'')+'':'')+
     (p.status==='archived'?'<button class="btn" data-act="restorePatient" data-id="'+p.id+'">'+ic('undo',16)+' إعادة التفعيل</button>':'<button class="btn danger" data-act="archivePatient" data-id="'+p.id+'">'+ic('archive',16)+' أرشفة</button>')+(canDo('admin')?'<button class="btn danger" data-act="deletePatient" data-id="'+p.id+'">'+ic('trash',16)+' حذف نهائي</button>':'')+(canDo('admin')&&pkgView(p)?'<button class="btn" data-act="editPkgSessions" data-id="'+p.id+'">'+ic('edit',16)+' تعديل عدد جلسات الباقة</button>':'')+(canDo('admin')&&pkgView(p)?'<button class="btn" data-act="editPkgPrice" data-id="'+p.id+'">'+ic('edit',16)+' تعديل سعر الباقة</button>':'')+'</div>';
   const _pv=pkgView(p),cx=_pv?IDX.pu[_pv.cur.id]:null;
@@ -2966,9 +2966,9 @@ function examsHTML(){
 function examName(r){return r.patientId?patName(r.patientId):(r.patientName||'—')}
 function addDailyField(date,f,amt){let r=(S.daily||[]).find(x=>x.date===date);if(!r){r={date,cash:0,expenses:0,insta:0,exam:0};S.daily.push(r)}r[f]=round2((r[f]||0)+amt)}
 function addDailyExam(date,amt){let r=(S.daily||[]).find(x=>x.date===date);if(!r){r={date,cash:0,expenses:0,insta:0,exam:0};S.daily.push(r)}r.exam=round2((r.exam||0)+amt)}
-function openExamForm(dt){
+function openExamForm(dt,pid){
   const exDoc=S.doctors.find(d=>d.examOnly);
-  openForm({title:'إضافة كشف',submit:'حفظ الكشف',draft:{patientId:'',patientName:'',date:dt||todayISO(),amount:'',doctorId:exDoc?exDoc.id:'',note:''},
+  openForm({title:'إضافة كشف',submit:'حفظ الكشف',draft:{patientId:pid||'',patientName:'',date:dt||todayISO(),amount:'',doctorId:exDoc?exDoc.id:'',note:''},
     fields:d=>[{k:'patientId',label:'المريض (ابحث بالاسم أو الرقم أو الهاتف)',type:'patsearch',full:true},
       {k:'patientName',label:'أو اكتب اسم مريض غير مسجل',type:'text',full:true,show:x=>!x.patientId},
       {k:'date',label:'التاريخ',type:'date',req:true},{k:'amount',label:'سعر الكشف (EGP)',type:'number',min:0,step:50,req:true},
@@ -3281,6 +3281,7 @@ Object.assign(ACT,{
   daAddPay(t){openDayPayForm(t&&t.dataset?t.dataset.pid:'')},
   daAddExp(){openExpenseForm((UI.acc==='daily'||!UI.acc?(UI.da||{}).date:undefined))},
   daAddExam(){openExamForm((UI.da||{}).date)},
+  patExam(t){openExamForm(undefined,t.dataset.id)},
   editExp(t){openEditExp(t.dataset.id)},
   editExam(t){openEditExam(t.dataset.id)},
   editAdj(t){openAdjForm(t.dataset.id)},
