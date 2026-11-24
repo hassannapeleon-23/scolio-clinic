@@ -1397,11 +1397,25 @@ function payCellHTML(it){
     return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap'+(rm?';opacity:.5;text-decoration:line-through':'')+'">'+money(t.amount)+' <span class="muted sm-t">'+esc(t.method||'')+(t.status==='pending'?' · بانتظار':'')+(t.type==='refund'?' · استرداد':'')+'</span>'+
     (rm?'<button class="btn sm" data-act="restoreTx" data-tid="'+t.id+'">استرجاع</button>':(t.type==='payment'&&t.status!=='pending'?'<button class="ib" data-act="corrPay" data-tid="'+t.id+'" aria-label="تعديل الدفعة">'+ic('edit',14)+'</button><button class="ib del" data-act="removeTx" data-tid="'+t.id+'" aria-label="إزالة الدفعة">'+ic('trash',14)+'</button>':''))+'</div>'}).join('');
 }
+/* التوتال = مجموع الصفوف المسجّلة فعلاً في اليوم (دفعات + دفعات بدون مريض + مصروفات + كشوفات).
+   أرقام الإكسل القديمة (الصف "مبلغ غير مسجّل باسم مريض") مش داخلة في أي توتال. */
+function dayTotalsFromRows(items){
+  let cash=0,insta=0,exp=0,exm=0,ghost=0;
+  const addPay=(m,a)=>{if((m||'')===CASH_M)cash+=a;else insta+=a};
+  for(const it of items){
+    if(it.kind==='ses'||it.kind==='pay'){for(const t of it.pays||[]){if(t.status==='received')addPay(t.method,t.amount)}}
+    else if(it.kind==='adj')addPay(it.a.method,it.a.amount);
+    else if(it.kind==='exp')exp+=it.x.amount;
+    else if(it.kind==='exm')exm+=it.e.amount;
+    else if(it.kind==='ghost')ghost+=it.amt;
+  }
+  return{cash:round2(cash),insta:round2(insta),expenses:round2(exp),exam:round2(exm),ghost:round2(ghost)};
+}
 function dayBookHTML(){
   const st=UI.da=UI.da||{date:todayISO()},d=st.date,flt=st.f||'all';
-  const tot=(effDaily().find(x=>x.date===d))||{cash:0,insta:0,expenses:0,exam:0};
-  const cash=round2(tot.cash||0),insta=round2(tot.insta||0),exp=round2(tot.expenses||0),exm=round2(tot.exam||0);
-  const all=dayItems(d),items=all.filter(it=>flt==='all'||(flt==='att'&&(it.kind==='ses'||it.kind==='pay'||it.kind==='ghost'||it.kind==='adj'))||(flt==='exm'&&it.kind==='exm')||(flt==='exp'&&it.kind==='exp'));
+  const all=dayItems(d),tot=dayTotalsFromRows(all);
+  const cash=tot.cash,insta=tot.insta,exp=tot.expenses,exm=tot.exam;
+  const items=all.filter(it=>flt==='all'||(flt==='att'&&(it.kind==='ses'||it.kind==='pay'||it.kind==='ghost'||it.kind==='adj'))||(flt==='exm'&&it.kind==='exm')||(flt==='exp'&&it.kind==='exp'));
   const payers=new Set();for(const it of all)for(const t of it.pays||[])if(t.type==='payment'&&t.status==='received')payers.add(t.patientId);
   const overList=S.patients.filter(p=>pdOf(p.id).over>0.005).map(p=>({p,o:pdOf(p.id).over})).sort((a,b)=>b.o-a.o),overTotal=round2(overList.reduce((a,x)=>a+x.o,0));
   let h=dayBar('da','الحسابات اليومية','نفس ترتيب شيت الإكسل: الحالة · الدكتور · الدفع · المصروفات. تقدر تعدّل أو تشيل أي صف.','');
@@ -1419,9 +1433,10 @@ function dayBookHTML(){
     else if(it.kind==='exm'){c1=esc(examName(it.e))+' <span class="b partial">كشف</span>';c2=esc(docName(it.e.doctorId));c3=money(it.e.amount);c5='<button class="ib" data-act="editExam" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="cancelExam" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
     else if(it.kind==='exp'){c1='<span class="muted">مصروف</span>';c4=esc(it.x.text)+' · '+money(it.x.amount);c5='<button class="ib" data-act="editExp" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="removeExp" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
     else if(it.kind==='adj'){c1=esc(it.a.label||'بدون مريض')+' <span class="b partial">بدون مريض</span>';c3=money(it.a.amount)+' <span class="muted sm-t">'+esc(it.a.method||'')+'</span>';c5='<button class="ib" data-act="editAdj" data-id="'+it.id+'" aria-label="تعديل">'+ic('edit',14)+'</button><button class="ib del" data-act="removeAdj" data-id="'+it.id+'" aria-label="إزالة">'+ic('trash',14)+'</button>'}
-    else{c1='<b>مبلغ غير مسجّل باسم مريض</b> <span class="b partial">'+(it.m==='cash'?'نقدي':'إنستا')+'</span>';c3=money(it.amt);c5='<button class="btn sm primary" data-act="linkGhost" data-m="'+it.m+'">ربط بمريض</button><button class="ib" data-act="editGhost" data-m="'+it.m+'" aria-label="تعديل">'+ic('edit',14)+'</button>'}
+    else{c1='<b>مبلغ من الإكسل غير مسجّل باسم مريض</b> <span class="b partial">'+(it.m==='cash'?'نقدي':'إنستا')+'</span> <span class="muted sm-t">— غير محسوب في التوتال</span>';c3='<span style="opacity:.6">'+money(it.amt)+'</span>';c5='<button class="btn sm primary" data-act="linkGhost" data-m="'+it.m+'">ربط بمريض</button><button class="ib" data-act="editGhost" data-m="'+it.m+'" aria-label="تعديل">'+ic('edit',14)+'</button>'}
     return '<tr><td class="n">'+n+'</td><td>'+c1+'</td><td>'+c2+'</td><td>'+c3+'</td><td>'+c4+'</td><td class="acts">'+c5+'</td></tr>'}).join('');
-  h+=tbl(['#','الحالة','الدكتور','الدفع','المصروفات',''],rows,720)+'</section>';
+  const foot='<tr style="font-weight:700;border-top:2px solid currentColor"><td></td><td>الإجمالي (من الصفوف المسجّلة)</td><td></td><td>'+money(cash+insta)+'<div class="muted sm-t" style="font-weight:400">نقدي '+nfmt(cash)+' · إنستا '+nfmt(insta)+'</div>'+(exm?'<div class="muted sm-t" style="font-weight:400">+ كشوفات '+nfmt(exm)+' (خارج الإيراد)</div>':'')+'</td><td>'+money(exp)+'</td><td></td></tr>';
+  h+=tbl(['#','الحالة','الدكتور','الدفع','المصروفات',''],rows+foot,720)+'</section>';
   if(overList.length)h+='<section class="card"><h2>مرضى دفعوا زيادة</h2><p class="muted">مبالغ مدفوعة أكتر من المطلوب (تظهر للمدير فقط).</p>'+tbl(['المريض','الزيادة'],overList.slice(0,40).map(x=>'<tr><td><button class="link" data-act="openPanel" data-id="'+x.p.id+'">'+esc(x.p.name)+'</button></td><td class="c">'+money(x.o)+'</td></tr>').join(''),320)+'</section>';
   return h;
 }
@@ -2311,11 +2326,13 @@ function calendarHTML(){
 /* ---------- doctors pages ---------- */
 /* live payments -> per-day cash / insta (seed payments are already inside S.daily) */
 const SEED_TX=/^(دفعة مسجلة في ملف الحضور اليومي|من سجل الحالات)/;
-function effDaily(){const live={};for(const t of S.ledger||[]){const seed=t.adj||SEED_TX.test(t.note||''),rm=t.status==='removed'&&seed&&t.type==='payment';if(!rm&&(t.status!=='received'||(t.type!=='payment'&&t.type!=='refund'&&t.type!=='reversal')))continue;if(!rm&&seed)continue;if(!IDX.pat.has(t.patientId))continue;const amt=rm?-t.amount:t.amount;const o=live[t.date]||(live[t.date]={cash:0,insta:0});if((t.method||'')==='نقدًا')o.cash+=amt;else o.insta+=amt}
-  for(const a of S.dayAdj||[]){const o=live[a.date]||(live[a.date]={cash:0,insta:0});if((a.method||'')===CASH_M)o.cash+=a.amount;else o.insta+=a.amount}
-  const rows=(S.daily||[]).map(r=>Object.assign({},r)),by=new Map(rows.map(r=>[r.date,r]));
-  for(const d in live){let r=by.get(d);if(!r){r={date:d,cash:0,expenses:0,insta:0,exam:0};rows.push(r);by.set(d,r)}r.cash=round2((r.cash||0)+live[d].cash);r.insta=round2((r.insta||0)+live[d].insta)}
-  return rows}
+function effDaily(){/* كل الأرقام اليومية/الشهرية بتتجمع من الصفوف المسجّلة فعلاً، مش من أرقام الإكسل */
+  const by=new Map(),get=d=>{let r=by.get(d);if(!r){r={date:d,cash:0,insta:0,expenses:0,exam:0};by.set(d,r)}return r};
+  for(const t of S.ledger||[]){if(t.status!=='received'||t.reversedBy||t.type==='reversal'||(t.type!=='payment'&&t.type!=='refund'))continue;if(!IDX.pat.has(t.patientId))continue;const r=get(t.date);if((t.method||'')===CASH_M)r.cash+=t.amount;else r.insta+=t.amount}
+  for(const a of S.dayAdj||[]){const r=get(a.date);if((a.method||'')===CASH_M)r.cash+=a.amount;else r.insta+=a.amount}
+  for(const e of S.expenses||[])get(e.date).expenses+=e.amount;
+  for(const e of S.exams||[])get(e.date).exam+=e.amount;
+  return Array.from(by.values()).map(r=>({date:r.date,cash:round2(r.cash),insta:round2(r.insta),expenses:round2(r.expenses),exam:round2(r.exam)}))}
 function monthlyHTML(){
   const R=Math.round,mset=new Set();
   for(const r of S.daily||[])mset.add(r.date.slice(0,7));
@@ -2324,7 +2341,7 @@ function monthlyHTML(){
   const months=Array.from(mset).sort();if(!months.length)return empty('لا توجد بيانات');
   if(!UI.mon||!mset.has(UI.mon))UI.mon=months[months.length-1];
   const ym=UI.mon,inM=d=>d.slice(0,7)===ym,byD=(a,b)=>a.date<b.date?-1:a.date>b.date?1:0;
-  const off=(S.monthly||[]).find(o=>o.m===ym);
+  const off=null;/* إجماليات الإكسل الرسمية متجاهلة */
   const days=effDaily().filter(r=>inM(r.date)).sort(byD);
   const exps=(S.expenses||[]).filter(r=>inM(r.date)).sort(byD);
   const examsAll=(S.exams||[]).filter(r=>inM(r.date)).sort(byD);const exams=examsAll.filter(r=>r.kind!=='other'),exOth=examsAll.filter(r=>r.kind==='other');
@@ -2364,7 +2381,7 @@ function monthlyHTML(){
 function allMonthsList(){const s=new Set();for(const r of S.daily||[])s.add(r.date.slice(0,7));for(const t of S.ledger)if(t.type==='payment')s.add(t.date.slice(0,7));for(const x of S.sessions)s.add(x.date.slice(0,7));return Array.from(s).sort()}
 function monthNums(ym){
   const R=Math.round,inM=d=>d.slice(0,7)===ym,sum=(a,k)=>a.reduce((x,r)=>x+r[k],0);
-  const off=(S.monthly||[]).find(o=>o.m===ym),days=effDaily().filter(r=>inM(r.date)),exps=(S.expenses||[]).filter(r=>inM(r.date)),exams=(S.exams||[]).filter(r=>inM(r.date)&&r.kind!=='other');
+  const off=null,days=effDaily().filter(r=>inM(r.date)),exps=(S.expenses||[]).filter(r=>inM(r.date)),exams=(S.exams||[]).filter(r=>inM(r.date)&&r.kind!=='other');
   let cash,insta,exp,exam;
   if(off){cash=off.cash;insta=off.insta;exp=off.exp;exam=off.exam}
   else if(days.length){cash=sum(days,'cash');insta=sum(days,'insta');exp=sum(days,'expenses');exam=sum(days,'exam')}
