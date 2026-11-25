@@ -396,6 +396,11 @@ svg.mark{display:block;width:auto;flex:none;color:var(--navy)}
 #side nav::-webkit-scrollbar{width:6px}
 #side nav::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
 </style>
+<style>
+.xl tr.ex-yes td{background:color-mix(in srgb,var(--ok-bg) 75%,var(--surface))}
+.xl tr.ex-no td{background:color-mix(in srgb,var(--warn-bg) 85%,var(--surface))}
+.xl td:focus,.cg td:focus{outline:2px solid var(--accent);outline-offset:-2px}
+</style>
 </head>
 <body>
 
@@ -517,10 +522,10 @@ function buildIdx(){
   for(const b in I.bucketSes){
     const list=I.bucketSes[b].slice().sort(cmpSess);let rem=Math.max(0,I.col[b]||0);
     for(const s of list){
-      if(s.kind==='free'){I.sc[s.id]={kind:'free',eligible:0,doctor:s.comp||0,center:0,cost:s.cost||0,value:s.basis||0,unfunded:0};continue}
+      if(s.kind==='free'){I.sc[s.id]={kind:'free',eligible:0,doctor:ruleFixed(s,s.comp||0),center:0,cost:ruleFixed(s,s.cost||0,true),value:s.basis||0,unfunded:0};continue}
       let el;
       if(s.compMode==='earned')el=s.value;else{el=Math.min(s.value,rem);rem=round2(rem-el)}
-      el=Math.round(el*1e6)/1e6;const dc=Math.round(el*s.rate*1e6)/1e6;
+      el=Math.round(el*1e6)/1e6;const _ru=ruleFor(s);const dc=_ru?(_ru.type==='fixed'?round2(_ru.value):Math.round(el*(_ru.value/100)*1e6)/1e6):Math.round(el*s.rate*1e6)/1e6;
       I.sc[s.id]={kind:'paid',eligible:el,doctor:dc,center:round2(el-dc),cost:0,value:s.value,unfunded:round2(s.value-el)};
     }
   }
@@ -1571,8 +1576,8 @@ function isFin(){return canDo('money')}
 function need(p){if(!canDo(p))throw new Error(DENY)}
 function myDoctorId(){if(!CUR||CUR.role!=='doctor')return null;const d=(S.doctors||[]).find(x=>x.name===CUR.dname);return d?d.id:null}
 function viewAllowed(v){const r=CUR&&CUR.role;if(!r||BOOT)return true;
-  if(r==='admin')return!['todayexp','archived','weekly','packages','confirmpart','finance','calendar'].includes(v);
-  if(r==='reception')return['dashboard','patients','doctors','doctor','exams','schedules','dayplan','fixed','arrears','account'].includes(v);
+  if(r==='admin')return!['todayexp','recday','archived','weekly','packages','confirmpart','finance','calendar'].includes(v);
+  if(r==='reception')return['dashboard','patients','doctors','doctor','exams','schedules','dayplan','fixed','arrears','recday','account'].includes(v);
   return v==='dashboard'||v==='account'}
 const DOC_ACT=new Set(['nav','toggleSide','closeSide','dismissNote','togglePw','logout','changePw','changeUn','closeModal','formSubmit','modalBg','confirmYes','docSelfIn','docSelfOut','docMarkPat','dpNav','dpToday','dpPrint']);
 const K256=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
@@ -1979,7 +1984,7 @@ function formHTML(){
 }
 function openForm(spec){
   UI.form=spec;UI.draft=Object.assign({},spec.draft||{});UI.errors={};UI.warn=[];UI.ack=false;UI.formErr='';UI.modal={type:'form'};
-  renderModal();const f=$('.modal [data-fk]:not([disabled])');if(f&&f.tagName!=='SELECT')f.focus();
+  renderModal();const f=$('.modal #ps-q')||$('.modal [data-fk]:not([disabled])');if(f&&f.tagName!=='SELECT')f.focus();
 }
 function renderModal(){
   const root=$('#modal-root'),m=UI.modal;
@@ -2399,10 +2404,10 @@ function monthNums(ym){
 function doctorsHTML(){
   const t=todayISO(),nowT=pad(new Date().getHours())+':'+pad(new Date().getMinutes());
   return '<div class="page-head"><div><h1>الأطباء</h1><p class="muted">'+(CUR&&CUR.role==='reception'?'تسجيل حضور وغياب الأطباء.':'اضغط على اسم الطبيب لفتح صفحته. المرضى الأساسيون مختلفون عن الجلسات التي نفّذها الطبيب فعلياً.')+'</p></div><div class="acts"><button class="btn primary" data-act="addDoctor">'+ic('plus')+' إضافة طبيب</button><button class="btn" data-act="openPresence">'+ic('check',16)+' تسجيل حضور</button><button class="btn" data-act="openAbsence">تسجيل غياب</button></div></div>'+
-  rollCallHTML()+attSummaryHTML()+(CUR&&CUR.role==='reception'?'':'<div class="dgrid">'+S.doctors.map(d=>{const s=doctorSummary(d.id),st=doctorTodayStatus(d,t,nowT);const today=S.appointments.filter(a=>a.doctorId===d.id&&a.date===t&&a.status!=='cancelled').length;
+  rollCallHTML()+attSummaryHTML()+(CUR&&CUR.role==='reception'?'':docMonthBar()+'<div class="dgrid">'+S.doctors.map(d=>{const s=doctorSummary(d.id),st=doctorTodayStatus(d,t,nowT);const today=S.appointments.filter(a=>a.doctorId===d.id&&a.date===t&&a.status!=='cancelled').length;
     if(d.examOnly){const ex=S.exams.filter(e=>e.doctorId===d.id);return '<button class="dcard" data-act="openDoctor" data-id="'+d.id+'"><span class="dn">'+esc(d.name)+'</span><span class="dchip" style="align-self:flex-start">كشوفات فقط</span><dl><dt>عدد الكشوفات</dt><dd>'+ex.length+'</dd>'+(isFin()?'<dt>إجمالي رسوم الكشوفات</dt><dd>'+money(ex.reduce((x,e)=>x+e.amount,0))+'</dd>':'')+'</dl></button>'}
     return '<button class="dcard" data-act="openDoctor" data-id="'+d.id+'"><span class="dn">'+esc(d.name)+'</span><span class="dchip" style="align-self:flex-start"><i class="'+st.k+'"></i>'+st.l+'</span><dl>'+
-    '<dt>مرضى نشطون (آخر 45 يوم)</dt><dd>'+s.primaryActive+' <span class="muted sm-t">(من '+s.primary+')</span></dd><dt>مواعيد اليوم</dt><dd>'+today+'</dd><dt>جلسات منفذة</dt><dd>'+s.sessions+(s.sub?' <span class="muted sm-t">(بديل '+s.sub+')</span>':'')+'</dd>'+(isFin()?'<dt>نسبة الأجر</dt><dd>'+Math.round(docRate(d.id)*100)+'%</dd><dt>أجر مكتسب</dt><dd>'+money(s.comp)+'</dd><dt>مدفوع</dt><dd>'+money(s.paid)+'</dd><dt>متبقٍ له</dt><dd>'+money(s.owed)+'</dd>':'')+'</dl></button>'}).join('')+'</div>');
+    '<dt>مرضى نشطون (آخر 45 يوم)</dt><dd>'+s.primaryActive+' <span class="muted sm-t">(من '+s.primary+')</span></dd><dt>مواعيد اليوم</dt><dd>'+today+'</dd><dt>حالات '+monthLabel(dmYM())+'</dt><dd>'+dmStats(d.id).pts+'</dd><dt>جلسات الشهر</dt><dd>'+dmStats(d.id).n+'</dd>'+(isFin()?'<dt>أجر الشهر</dt><dd>'+money(dmStats(d.id).comp)+'</dd>':'')+'</dl></button>'}).join('')+'</div>');
 }
 function examDoctorHTML(d){
   const ex=S.exams.filter(e=>e.doctorId===d.id).slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);
@@ -2421,8 +2426,8 @@ function doctorHTML(){
    '<div class="page-head"><div><h1>'+esc(d.name)+(d.active?'':' <span class="b pt-archived">غير مفعّل</span>')+'</h1><p class="muted">'+d.workDays.map(i=>WD[i]).join('، ')+' · '+tfmt(d.start)+' – '+tfmt(d.end)+(isFin()?' · نسبة الأجر <b>'+Math.round(docRate(d.id)*100)+'%</b>':'')+'</p></div><div class="acts"><button class="btn" data-act="editDoctor" data-id="'+d.id+'">'+ic('edit',16)+' تعديل</button><button class="btn" data-act="openPresence" data-id="'+d.id+'">'+ic('check',16)+' تسجيل حضور</button><button class="btn" data-act="openAbsence" data-id="'+d.id+'">تسجيل غياب</button></div></div>'+
    '<div class="stats">'+statCard('المرضى الأساسيون',s.primary,s.primaryActive+' نشط')+statCard('الجلسات التي نفّذها',s.sessions,'لمرضاه '+s.own+' · كبديل '+s.sub)+statCard('مواعيد قادمة',upN)+(hasFak(d.id)?statCard('جلسات فك',S.sessions.filter(x=>x.status==='active'&&x.doctorId===d.id&&x.fak).length):'')+
    (isFin()?statCard('الأجر المكتسب',money(s.comp),'',true)+statCard('المدفوع له',money(s.paid))+statCard('المتبقي له',money(s.owed),'',true):'')+'</div>';
-  if(UI.dtab==='comp'&&!isFin())UI.dtab='patients';
-  const tabs=[['patients','مرضاه الأساسيون ('+s.primary+')'],['sessions','الجلسات التي نفّذها ('+s.sessions+')'],['schedule','جدوله'],['comp','الأجور والدفعات'],['avail','الحضور والغياب']].filter(x=>x[0]!=='comp'||isFin());
+  if(UI.dtab==='comp'&&!isFin())UI.dtab='patients';if(UI.dtab==='rules'&&!canDo('admin'))UI.dtab='patients';
+  const tabs=[['patients','مرضاه الأساسيون ('+s.primary+')'],['sessions','الجلسات التي نفّذها ('+s.sessions+')'],['schedule','جدوله'],['comp','الأجور والدفعات'],['avail','الحضور والغياب'],['rules','نسب وفترات الأجر']].filter(x=>(x[0]!=='comp'||isFin())&&(x[0]!=='rules'||canDo('admin')));
   h+='<section class="card"><div class="tabs" role="tablist">'+tabs.map(x=>'<button class="tab" role="tab" data-act="dtab" data-t="'+x[0]+'" aria-selected="'+(UI.dtab===x[0])+'">'+x[1]+'</button>').join('')+'</div>';
   if(UI.dtab==='patients'){
     const l=S.patients.filter(p=>p.doctorId===d.id).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
@@ -2442,6 +2447,7 @@ function doctorHTML(){
     h+='<div class="page-head"><div class="mini3"><div>المكتسب<b>'+moneyT(s.comp)+'</b></div><div>المدفوع<b>'+moneyT(s.paid)+'</b></div><div>المتبقي<b>'+moneyT(s.owed)+'</b></div></div><button class="btn primary" data-act="addPayout" data-id="'+d.id+'">'+ic('plus',16)+' تسجيل دفعة أجر</button></div>'+
       '<h3>الدفعات المسجلة</h3>'+(po.length?'<div class="tw" style="max-height:260px"><table class="xl tight w"><thead><tr><th>رقم</th><th>التاريخ</th><th class="c">المبلغ</th><th>ملاحظة</th><th>الحالة</th><th></th></tr></thead><tbody>'+po.map(x=>'<tr class="'+(x.status==='voided'?'r-can':'')+'"><td class="n">'+x.id+'</td><td>'+dfmt(x.date)+'</td><td class="c">'+money(x.amount)+'</td><td>'+esc(x.note)+'</td><td>'+(x.status==='voided'?'ملغاة'+(x.voidReason?' · '+esc(x.voidReason):''):'مسجلة')+'</td><td>'+(x.status==='voided'?'':'<button class="btn sm danger" data-act="voidPayout" data-id="'+x.id+'">إلغاء</button>')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">لا توجد دفعات أجور بعد.</p>')+
       '<h3>الأجر المكتسب حسب الشهر</h3>'+(m.size?'<div class="tw" style="max-height:260px"><table class="xl tight w"><thead><tr><th>الشهر</th><th class="c">الأجر المكتسب</th></tr></thead><tbody>'+Array.from(m.keys()).sort().reverse().map(k=>'<tr><td>'+monthLabel(k)+'</td><td class="c">'+money(m.get(k))+'</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">لا توجد جلسات بعد.</p>');
+  }else if(UI.dtab==='rules'){h+=rulesTabHTML(d)
   }else{
     const abs=S.absences.filter(x=>x.doctorId===d.id).sort((a,b)=>a.date<b.date?1:-1);
     h+='<div class="page-head"><div><h3>ساعات العمل المعتادة</h3><p class="muted">'+d.workDays.map(i=>WD[i]).join('، ')+' · '+tfmt(d.start)+' – '+tfmt(d.end)+'</p></div><div class="acts"><button class="btn" data-act="editDoctor" data-id="'+d.id+'">تعديل أيام وساعات العمل</button><button class="btn primary" data-act="openPresence" data-id="'+d.id+'">'+ic('check',16)+' تسجيل حضور</button><button class="btn primary" data-act="openAbsence" data-id="'+d.id+'">'+ic('plus',16)+' تسجيل غياب</button></div></div>'+attendanceHTML(d)+
@@ -2955,8 +2961,8 @@ function examsHTML(){
   act.sort(byD);cx.sort(byD);
   const amt=n=>rec?'<span class="n">'+nfmt(n)+' ج</span>':money(n);
   const tot=act.reduce((a,e)=>a+e.amount,0);
-  const row=(e,c)=>'<tr'+(c?' style="opacity:.6"':'')+'><td>'+dfmt(e.date)+'</td><td>'+(c?'<s>':'')+esc(examName(e))+(c?'</s>':'')+'</td><td>'+esc(docName(e.doctorId))+'</td><td class="c">'+amt(e.amount)+'</td><td class="acts">'+(c?'<button class="btn sm" data-act="restoreExam" data-id="'+e.id+'">استرجاع</button>':'<button class="btn sm" data-act="cancelExam" data-id="'+e.id+'">كنسلة</button>')+'</td></tr>';
-  const head='<thead><tr><th>التاريخ</th><th>المريض</th><th>الطبيب</th><th class="c">المبلغ</th><th></th></tr></thead>';
+  const row=(e,c)=>'<tr class="'+(c?'':exCls(e))+'"'+(c?' style="opacity:.6"':'')+'><td>'+dfmt(e.date)+'</td><td>'+(c?'<s>':'')+esc(examName(e))+(c?'</s>':'')+'</td><td>'+esc(docName(e.doctorId))+'</td><td class="c">'+amt(e.amount)+'</td><td>'+exInfo(e)+'</td><td class="acts">'+(c?'<button class="btn sm" data-act="restoreExam" data-id="'+e.id+'">استرجاع</button>':'<button class="btn sm" data-act="examMeta" data-id="'+e.id+'">متابعة</button> <button class="btn sm" data-act="cancelExam" data-id="'+e.id+'">كنسلة</button>')+'</td></tr>';
+  const head='<thead><tr><th>التاريخ</th><th>المريض</th><th>الطبيب</th><th class="c">المبلغ</th><th>التحويل / المتابعة</th><th></th></tr></thead>';
   let h='<div class="page-head"><div><h1>الكشوفات</h1><p class="muted">'+(rec?'كشوفات اليوم فقط · '+dlong(t):'كشوفات كل شهر لوحده.')+'</p></div><div class="acts"><button class="btn primary" data-act="addExam">'+ic('plus')+' إضافة كشف</button></div></div>';
   h+=examMonthBar(rec);h+='<div class="stats">'+statCard(rec?'عدد كشوفات اليوم':'عدد الكشوفات',act.length)+statCard(rec?'إجمالي كشوفات اليوم':'إجمالي كشوفات الشهر',rec?'<span class="n">'+nfmt(tot)+' ج</span>':money(tot),'',true)+(cx.length?statCard('الكشوفات الملغاة',cx.length):'')+'</div>';
   h+='<section class="card">'+(act.length?'<div class="tw" style="max-height:560px"><table class="xl tight w">'+head+'<tbody>'+act.map(e=>row(e,false)).join('')+'</tbody></table></div>':empty(rec?'لا توجد كشوفات مسجلة اليوم':'لا توجد كشوفات مسجلة'))+'</section>';
@@ -2968,14 +2974,14 @@ function addDailyField(date,f,amt){let r=(S.daily||[]).find(x=>x.date===date);if
 function addDailyExam(date,amt){let r=(S.daily||[]).find(x=>x.date===date);if(!r){r={date,cash:0,expenses:0,insta:0,exam:0};S.daily.push(r)}r.exam=round2((r.exam||0)+amt)}
 function openExamForm(dt,pid){
   const exDoc=S.doctors.find(d=>d.examOnly);
-  openForm({title:'إضافة كشف',submit:'حفظ الكشف',draft:{patientId:pid||'',patientName:'',date:dt||todayISO(),amount:'',doctorId:exDoc?exDoc.id:'',note:''},
+  openForm({title:'إضافة كشف',submit:'حفظ الكشف',draft:{patientId:pid||'',patientName:'',date:dt||todayISO(),amount:'',doctorId:exDoc?exDoc.id:'',note:'',refDoc:'',cont:'',noReason:''},
     fields:d=>[{k:'patientId',label:'المريض (ابحث بالاسم أو الرقم أو الهاتف)',type:'patsearch',full:true},
       {k:'patientName',label:'أو اكتب اسم مريض غير مسجل',type:'text',full:true,show:x=>!x.patientId},
       {k:'date',label:'التاريخ',type:'date',req:true},{k:'amount',label:'سعر الكشف (EGP)',type:'number',min:0,step:50,req:true},
       {k:'doctorId',label:'الطبيب',type:'select',req:true,options:()=>S.doctors.slice().sort((a,b)=>(b.examOnly?1:0)-(a.examOnly?1:0)).map(x=>({v:x.id,l:x.name}))},
-      {k:'note',label:'ملاحظة',type:'text',full:true}],
+      {k:'note',label:'ملاحظة',type:'text',full:true},{k:'refDoc',label:'محوّل على المركز من دكتور (اكتب الاسم — اختياري)',type:'text',full:true},{k:'cont',label:'هل كمّل في المكان؟',type:'select',options:()=>EX_CONT},{k:'noReason',label:'سبب عدم التكملة',type:'text',full:true,show:x=>x.cont==='no'}],
     validate(d){const e={};if(!validDate(d.date))e.date='تاريخ غير صحيح.';if(!(num(d.amount)>=0)||d.amount==='')e.amount='أدخل سعر الكشف.';if(!d.patientId&&!String(d.patientName||'').trim())e.patientName='اختر مريضاً أو اكتب الاسم.';if(!d.doctorId)e.doctorId='اختر الطبيب.';return{errors:e}},
-    onSave(d){const r={id:'E-'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),patientId:d.patientId||null,patientName:d.patientId?'':String(d.patientName).trim(),date:d.date,amount:round2(num(d.amount)),doctorId:d.doctorId,kind:'basma',note:String(d.note||'').trim(),manual:true};
+    onSave(d){const r={id:'E-'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),patientId:d.patientId||null,patientName:d.patientId?'':String(d.patientName).trim(),date:d.date,amount:round2(num(d.amount)),doctorId:d.doctorId,kind:'basma',note:String(d.note||'').trim(),refDoc:String(d.refDoc||'').trim(),cont:d.cont||'',noReason:d.cont==='no'?String(d.noReason||'').trim():'',manual:true};
       S.exams=S.exams||[];S.exams.push(r);addDailyExam(r.date,r.amount);logA('exam',r.id,'إضافة كشف: '+examName(r),[{field:'المبلغ',from:'',to:String(r.amount)}],'',r.patientId||null);commit();return{msg:'تمت إضافة الكشف.'}}});
 }
 const EXTRA_ACT={
@@ -3060,10 +3066,10 @@ const EXTRA_CH={
 };
 
 /* ---------- shell ---------- */
-const NAV=[['dashboard','الرئيسية','home'],['patients','المرضى','user'],['braces','Braces','brace'],['doctors','الأطباء','doctors'],['schedules','الجداول والمواعيد','cal'],['exams','الكشوفات','check'],['accounts','الحسابات','chart'],['debtors','المتأخرات','chart'],['reports','التقارير','rep'],['settings','الإعدادات','set'],['arrears','كل المتأخرات','chart'],['account','حسابي','user']];
+const NAV=[['dashboard','الرئيسية','home'],['patients','المرضى','user'],['braces','Braces','brace'],['doctors','الأطباء','doctors'],['schedules','الجداول والمواعيد','cal'],['exams','الكشوفات','check'],['recday','الحسابات اليومية','chart'],['accounts','الحسابات','chart'],['debtors','المتأخرات','chart'],['reports','التقارير','rep'],['settings','الإعدادات','set'],['arrears','كل المتأخرات','chart'],['account','حسابي','user']];
 const mq=window.matchMedia?window.matchMedia('(max-width:900px)'):{matches:false};
 function renderShell(){
-  $('#side').innerHTML='<div class="brand">'+logoFull()+logoMarkImg()+'</div><nav aria-label="التنقل">'+NAV.filter(n=>viewAllowed(n[0])&&((n[0]!=='finance'&&n[0]!=='monthly'&&n[0]!=='debtors'&&n[0]!=='confirmpart'&&n[0]!=='merge')||canDo('money'))&&(n[0]!=='accounts'||canDo('admin'))&&(n[0]!=='arrears'||(CUR&&CUR.role==='reception'))&&(n[0]!=='account'||(CUR&&CUR.role!=='admin'))).map(n=>'<button class="nav" data-act="nav" data-v="'+n[0]+'" data-nav="'+n[0]+'">'+ic(n[2],20)+'<span>'+n[1]+'</span></button>').join('')+'</nav><div class="side-foot">نظام داخلي · نسخة تجريبية</div>';
+  $('#side').innerHTML='<div class="brand">'+logoFull()+logoMarkImg()+'</div><nav aria-label="التنقل">'+NAV.filter(n=>viewAllowed(n[0])&&((n[0]!=='finance'&&n[0]!=='monthly'&&n[0]!=='debtors'&&n[0]!=='confirmpart'&&n[0]!=='merge')||canDo('money'))&&(n[0]!=='accounts'||canDo('admin'))&&(n[0]!=='arrears'||(CUR&&CUR.role==='reception'))&&(n[0]!=='recday'||(CUR&&CUR.role==='reception'))&&(n[0]!=='account'||(CUR&&CUR.role!=='admin'))).map(n=>'<button class="nav" data-act="nav" data-v="'+n[0]+'" data-nav="'+n[0]+'">'+ic(n[2],20)+'<span>'+n[1]+'</span></button>').join('')+'</nav><div class="side-foot">نظام داخلي · نسخة تجريبية</div>';
   $('#burger').innerHTML=ic('menu',22);$('#gsearch').innerHTML=searchBox('gq',false,'بحث عن مريض بالاسم أو الرقم أو الهاتف',true);
 }
 function applySide(){const app=$('#app');app.classList.toggle('collapsed',UI.side.collapsed);app.classList.toggle('open',UI.side.open);const b=$('#burger');if(b)b.setAttribute('aria-expanded',String(mq.matches?UI.side.open:!UI.side.collapsed))}
@@ -3087,7 +3093,7 @@ function render(){
   if(UI.loading){m.innerHTML=loadingHTML();return}
   let h='';m.style.minHeight=m.offsetHeight+'px';const tws=[...m.querySelectorAll('.tw')].map(e=>e.scrollTop);window.__tws=tws;
   if(!viewAllowed(UI.view)||((UI.view==='finance'||UI.view==='monthly'||UI.view==='debtors'||UI.view==='confirmpart'||UI.view==='merge')&&!canDo('money'))||(UI.view==='arrears'&&!(CUR&&CUR.role==='reception'))||((UI.view==='dailyacc'||UI.view==='dailytx'||UI.view==='accounts'||UI.view==='monthly')&&!canDo('admin')))UI.view='dashboard';
-  switch(UI.view){case'patients':case'archived':h=patientsHTML();break;case'braces':h=bracesHTML();break;case'doctors':h=doctorsHTML();break;case'doctor':h=doctorHTML();break;case'dayplan':UI.sch='day';h=schedulesHTML();break;case'schedules':h=schedulesHTML();break;case'fixed':UI.sch='fixed';h=schedulesHTML();break;case'todayexp':h=todayExpHTML();break;case'calendar':UI.sch='day';h=schedulesHTML();break;case'exams':h=examsHTML();break;case'packages':h=packagesHTML();break;case'debtors':h=canDo('money')?debtorsHTML():dashHTML();break;case'arrears':h=debtorsHTML();break;case'confirmpart':h=canDo('money')?confirmPartHTML():dashHTML();break;case'merge':h=canDo('admin')?mergeHTML():dashHTML();break;case'finance':h=financeHTML();break;case'accounts':h=accountsHTML();break;case'dailyacc':case'dailytx':UI.acc='daily';h=accountsHTML();break;case'monthly':UI.acc='monthly';h=accountsHTML();break;case'reports':h=reportsHTML();break;case'settings':h=settingsHTML();break;case'account':h='<div class="page-head"><div><h1>حسابي</h1></div></div>'+myAccountCard();break;default:h=dashHTML()}
+  switch(UI.view){case'patients':case'archived':h=patientsHTML();break;case'braces':h=bracesHTML();break;case'doctors':h=doctorsHTML();break;case'doctor':h=doctorHTML();break;case'dayplan':UI.sch='day';h=schedulesHTML();break;case'schedules':h=schedulesHTML();break;case'fixed':UI.sch='fixed';h=schedulesHTML();break;case'recday':h=recDayHTML();break;case'todayexp':h=todayExpHTML();break;case'calendar':UI.sch='day';h=schedulesHTML();break;case'exams':h=examsHTML();break;case'packages':h=packagesHTML();break;case'debtors':h=canDo('money')?debtorsHTML():dashHTML();break;case'arrears':h=debtorsHTML();break;case'confirmpart':h=canDo('money')?confirmPartHTML():dashHTML();break;case'merge':h=canDo('admin')?mergeHTML():dashHTML();break;case'finance':h=financeHTML();break;case'accounts':h=accountsHTML();break;case'dailyacc':case'dailytx':UI.acc='daily';h=accountsHTML();break;case'monthly':UI.acc='monthly';h=accountsHTML();break;case'reports':h=reportsHTML();break;case'settings':h=settingsHTML();break;case'account':h='<div class="page-head"><div><h1>حسابي</h1></div></div>'+myAccountCard();break;default:h=dashHTML()}
   m.innerHTML=(UI.view==='dashboard'?pkgBanner():'')+h;
   if(UI.view==='patients'||UI.view==='archived')renderPatTable();
   if(UI.view==='braces')renderBraceTable();
@@ -3200,7 +3206,7 @@ const ACT={
   removeDemo(){const n=S.patients.filter(p=>p.demo).length;openConfirm('حذف البيانات التجريبية','سيتم حذف <b>'+n+'</b> مريض تجريبي مع مواعيدهم وجلساتهم ومعاملاتهم نهائياً. المرضى الفعليون والأطباء والباقات تبقى.','حذف التجريبي',true,()=>{removeDemo();UI.panel=null;toast('تم حذف البيانات التجريبية.');refresh()})},
   resetAll(){openConfirm('إعادة ضبط كل البيانات','سيتم حذف <b>كل</b> البيانات بما فيها المرضى الفعليون والأطباء الذين أضفتهم، واستبدالها ببيانات المركز الأصلية المستوردة من ملفات الحسابات. هل أنت متأكد؟','إعادة الضبط',true,()=>{resetAll();UI.panel=null;toast('تمت إعادة الضبط.');refresh()})}
 };
-EXTRA_ACT.pickPat=function(t){const d=UI.draft;d.patientId=t.dataset.id;UI.ack=false;UI.warn=[];delete UI.errors.patientId;if(UI.form&&UI.form.onChange)UI.form.onChange(d,'patientId');renderModal()};
+EXTRA_ACT.pickPat=function(t){const d=UI.draft;d.patientId=t.dataset.id;UI.ack=false;UI.warn=[];delete UI.errors.patientId;if(UI.form&&UI.form.onChange)UI.form.onChange(d,'patientId');renderModal();{const n=$('#ff-date');if(n)n.focus()}};
 EXTRA_ACT.clearPickPat=function(){UI.draft.patientId='';renderModal();const q=$('#ps-q');if(q)q.focus()};
 EXTRA_ACT.addExpense=function(){openExpenseForm()};
 EXTRA_ACT.delExpense=function(t){const r=(S.expenses||[]).find(x=>x.id===t.dataset.id);if(!r||!r.manual)return;if(!canDo('money')&&r.date!==todayISO()){toast(DENY,'bad');return}
@@ -3978,6 +3984,82 @@ const SYNC=(function(){
 })();
 SYNC_HOOK=SB_ON?(k=>SYNC.markDirty(k)):null;
 /*SYNC-END*/
+
+
+/* ===== v58 additions ===== */
+const EX_CONT=[{v:'',l:'لسه لم يُحدد'},{v:'yes',l:'كمّل في المكان'},{v:'no',l:'لم يكمّل'}];
+function exStatus(e){if(e.cont)return e.cont;if(e.patientId&&(IDX.patSes[e.patientId]||[]).some(x=>x.status==='active'&&x.date>=e.date))return 'yes';return ''}
+function exCls(e){const x=exStatus(e);return x==='yes'?'ex-yes':x==='no'?'ex-no':''}
+function exInfo(e){const x=exStatus(e);let h='';if(e.refDoc)h+='<div class="sm-t">محوّل من: <b>'+esc(e.refDoc)+'</b></div>';
+  if(x==='yes')h+='<span class="b paid">كمّل في المكان'+(e.cont?'':' (تلقائي)')+'</span>';else if(x==='no')h+='<span class="b partial">لم يكمّل</span>'+(e.noReason?'<div class="sm-t muted">'+esc(e.noReason)+'</div>':'');return h||'<span class="muted">—</span>'}
+function ruleFor(s){const l=S.compRules;if(!l||!l.length)return null;let best=null,bs=-1;for(const r of l){if(r.doctorId!==s.doctorId)continue;if(r.from&&s.date<r.from)continue;if(r.to&&s.date>r.to)continue;if(r.patientId&&r.patientId!==s.patientId)continue;const sc=r.patientId?2:0;if(!best||sc>bs||(sc===bs&&(r.createdAt||'')>=(best.createdAt||''))){best=r;bs=sc}}return best}
+function ruleFixed(s,def,isCost){const r=ruleFor(s);if(!r||r.type!=='fixed')return def;return isCost?Math.max(def,round2(r.value)):round2(r.value)}
+function dmYM(){return UI.dm||todayISO().slice(0,7)}
+function dmStats(did){const ym=dmYM(),k=did+'|'+ym;UI._dmc=UI._dmc&&UI._dmc.t===S.audit.length+':'+S.sessions.length+':'+(S.compRules||[]).length?UI._dmc:{t:S.audit.length+':'+S.sessions.length+':'+(S.compRules||[]).length,m:{}};
+  if(UI._dmc.m[k])return UI._dmc.m[k];const pts=new Set();let n=0,comp=0;
+  for(const x of S.sessions){if(x.status!=='active'||x.doctorId!==did||x.date.slice(0,7)!==ym||!IDX.pat.has(x.patientId))continue;n++;pts.add(x.patientId);comp+=sessionComp(x).doctor}
+  return UI._dmc.m[k]={n,pts:pts.size,comp:round2(comp)}}
+function docMonthBar(){const ym=dmYM(),by={};for(const x of S.sessions){if(x.status!=='active'||!IDX.pat.has(x.patientId))continue;const m=x.date.slice(0,7);by[m]=(by[m]||0)+1}
+  const ms=Object.keys(by).sort().reverse().slice(0,18);
+  return '<section class="card"><div class="acts" style="align-items:center;flex-wrap:wrap"><h2 style="margin:0">الشهر</h2><input class="inp" type="month" style="width:170px" data-in="dmMonth" value="'+ym+'" aria-label="الشهر"><span class="muted sm-t">الأرقام في الكروت لهذا الشهر فقط، والإجمالي جوا صفحة كل طبيب.</span></div>'+
+   (ms.length?'<div class="nfilter">'+ms.map(m=>'<button class="tab sm" data-act="dmSet" data-m="'+m+'" aria-selected="'+(m===ym)+'">'+monthLabel(m)+' · '+by[m]+'</button>').join('')+'</div>':'')+'</section>'}
+function rulesTabHTML(d){
+  const l=(S.compRules||[]).filter(r=>r.doctorId===d.id).slice().sort((a,b)=>(b.from||'')<(a.from||'')?-1:1);
+  return '<div class="page-head"><div><h3>نسب وفترات الأجر</h3><p class="muted">تظهر للمدير فقط. القاعدة بنسبة % أو بمبلغ ثابت لكل جلسة، لحالة معيّنة أو لكل حالات الدكتور، ولفترة زمنية. القاعدة الخاصة بحالة تغلب العامة.</p></div><button class="btn primary" data-act="addRule" data-id="'+d.id+'">'+ic('plus',16)+' إضافة قاعدة</button></div>'+
+   (l.length?'<div class="tw" style="max-height:none"><table class="xl tight w"><thead><tr><th>الفترة</th><th>الحالة</th><th>القيمة</th><th>ملاحظة</th><th></th></tr></thead><tbody>'+l.map(r=>'<tr><td>'+(r.from?dfmt(r.from):'من البداية')+' → '+(r.to?dfmt(r.to):'مفتوحة')+'</td><td>'+(r.patientId?esc(patName(r.patientId)):'كل الحالات')+'</td><td><b>'+(r.type==='fixed'?'<span class="n">'+nfmt(r.value)+' ج</span> / جلسة':'<span class="n">'+r.value+'%</span>')+'</b></td><td>'+esc(r.note||'')+'</td><td class="acts"><button class="btn sm danger" data-act="delRule" data-id="'+r.id+'">حذف</button></td></tr>').join('')+'</tbody></table></div>':empty('لا توجد قواعد خاصة','الدكتور يتحاسب بنسبته المعتادة.'))}
+function openRuleForm(did){need('admin');
+  openForm({title:'قاعدة أجر — '+docName(did),submit:'حفظ القاعدة',draft:{patientId:'',from:todayISO(),to:'',type:'pct',value:'',note:''},
+    fields:()=>[{k:'patientId',label:'حالة معيّنة (اختياري — اتركه فاضي لكل الحالات)',type:'patsearch',full:true},{k:'from',label:'من تاريخ',type:'date',req:true},{k:'to',label:'إلى تاريخ (اختياري)',type:'date'},
+      {k:'type',label:'نوع القيمة',type:'select',options:()=>[{v:'pct',l:'نسبة مئوية من الجلسة %'},{v:'fixed',l:'مبلغ ثابت لكل جلسة (EGP)'}]},{k:'value',label:'القيمة',type:'number',min:0,step:'any',req:true},{k:'note',label:'ملاحظة',type:'text',full:true}],
+    validate(d){const e={};if(!validDate(d.from))e.from='تاريخ غير صحيح.';if(d.to&&(!validDate(d.to)||d.to<d.from))e.to='تاريخ النهاية قبل البداية.';const v=parseFloat(d.value);if(!isFinite(v)||v<0||(d.type==='pct'&&v>100))e.value=d.type==='pct'?'النسبة بين 0 و100.':'أدخل مبلغاً صحيحاً.';return{errors:e}},
+    onSave(d){S.compRules=S.compRules||[];const r={id:'CR-'+Date.now().toString(36),doctorId:did,patientId:d.patientId||'',from:d.from,to:d.to||'',type:d.type,value:parseFloat(d.value),note:String(d.note||'').trim(),createdAt:nowISO(),by:ACTOR};
+      S.compRules.push(r);logA('doctor',did,'إضافة قاعدة أجر',[{field:'القاعدة',from:'',to:(r.type==='fixed'?r.value+' ج/جلسة':r.value+'%')+' · '+r.from+' → '+(r.to||'مفتوحة')+(r.patientId?' · '+patName(r.patientId):' · كل الحالات')}],r.note,r.patientId||null);commit();return{msg:'تم حفظ القاعدة.'}}});
+}
+function openExamMeta(id){const r=(S.exams||[]).find(x=>x.id===id);if(!r)return;
+  openForm({title:'متابعة الكشف — '+examName(r),submit:'حفظ',draft:{refDoc:r.refDoc||'',cont:r.cont||'',noReason:r.noReason||''},
+    fields:()=>[{k:'refDoc',label:'محوّل على المركز من دكتور (اكتب الاسم)',type:'text',full:true},{k:'cont',label:'هل كمّل في المكان؟',type:'select',options:()=>EX_CONT},{k:'noReason',label:'سبب عدم التكملة',type:'text',full:true,show:x=>x.cont==='no'}],
+    onSave(d){const old=(r.cont||'-')+'/'+(r.refDoc||'');r.refDoc=String(d.refDoc||'').trim();r.cont=d.cont||'';r.noReason=d.cont==='no'?String(d.noReason||'').trim():'';
+      logA('exam',r.id,'تحديث متابعة كشف: '+examName(r),[{field:'المتابعة',from:old,to:(r.cont||'-')+'/'+r.refDoc+(r.noReason?' ('+r.noReason+')':'')}],'',r.patientId||null);commit();return{msg:'تم الحفظ.'}}});
+}
+function recDayHTML(){
+  const t=todayISO(),ex=(S.expenses||[]).filter(r=>r.date===t),tot=ex.reduce((a,r)=>a+r.amount,0),ev=dailytxEvents(t).filter(e=>e.kind!=='session');
+  const f=n=>'<span class="n">'+nfmt(n)+' ج</span>';
+  const pay=round2(ev.filter(e=>e.cash&&e.amount!=null).reduce((a,e)=>a+e.amount,0));
+  return '<div class="page-head"><div><h1>الحسابات اليومية</h1><p class="muted">'+dlong(t)+' · مصروفات ومعاملات اليوم فقط.</p></div><div class="acts"><button class="btn primary" data-act="addExpense">'+ic('plus')+' إضافة مصروف</button></div></div>'+
+   '<div class="stats">'+statCard('صافي الدفعات اليوم',f(pay),'',true)+statCard('عدد المصروفات',ex.length)+statCard('إجمالي المصروفات',f(tot))+'</div>'+
+   '<section class="card"><h2>مصروفات اليوم</h2>'+(ex.length?'<div class="tw" style="max-height:none"><table class="xl tight w"><thead><tr><th>البند</th><th class="c">المبلغ</th><th></th></tr></thead><tbody>'+ex.map(r=>'<tr><td>'+esc(r.text)+'</td><td class="c">'+f(r.amount)+'</td><td class="acts">'+(r.manual?'<button class="ib del" data-act="delExpense" data-id="'+r.id+'" aria-label="حذف المصروف">'+ic('trash',16)+'</button>':'')+'</td></tr>').join('')+'</tbody></table></div>':empty('لا توجد مصروفات اليوم'))+'</section>'+
+   '<section class="card"><h2>معاملات اليوم</h2>'+(ev.length?'<div class="tw" style="max-height:none"><table class="xl tight w"><thead><tr><th>الوقت</th><th>النوع</th><th>المريض / التفاصيل</th><th class="c">المبلغ</th><th>بواسطة</th></tr></thead><tbody>'+ev.map(e=>'<tr><td class="n">'+(e.time||'—')+'</td><td>'+e.label+'</td><td>'+(e.pid?'<button class="link" data-act="openPanel" data-id="'+e.pid+'">'+esc(patName(e.pid))+'</button> · ':'')+'<span class="muted">'+esc(e.kind==='purchase'?(e.detail||'').replace(/ · سعر.*$/,''):e.detail)+'</span></td><td class="c">'+(e.amount==null?(e.price!=null?f(e.price):'—'):f(e.amount))+'</td><td>'+esc(e.by)+'</td></tr>').join('')+'</tbody></table></div>':empty('لا توجد معاملات اليوم'))+'</section>';
+}
+Object.assign(ACT,{
+  dmSet(t){UI.dm=t.dataset.m;refresh()},
+  addRule(t){openRuleForm(t.dataset.id)},
+  delRule(t){need('admin');const r=(S.compRules||[]).find(x=>x.id===t.dataset.id);if(!r)return;openConfirm('حذف القاعدة','هترجع الجلسات في الفترة دي للنسبة المعتادة.','حذف',true,()=>{S.compRules=S.compRules.filter(x=>x.id!==r.id);logA('doctor',r.doctorId,'حذف قاعدة أجر',[{field:'القاعدة',from:r.value+(r.type==='fixed'?' ج':'%')+' · '+r.from,to:'محذوفة'}],'');commit();toast('تم حذف القاعدة.');refresh()})},
+  examMeta(t){const r=(S.exams||[]).find(x=>x.id===t.dataset.id);if(!r)return;if(CUR&&CUR.role==='reception'&&r.date!==todayISO()){toast(DENY,'warn');return}openExamMeta(r.id)}
+});
+['addRule','delRule'].forEach(x=>ADMIN_ACT.add(x));
+['addExpense','delExpense'].forEach(x=>ADMIN_ACT.delete(x));
+Object.assign(IN,{dmMonth(t){if(/^\d{4}-\d{2}$/.test(t.value)){UI.dm=t.value;refresh()}}});
+
+/* arrow-key navigation inside tables */
+function focusCell(cell){const f=cell.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),a[href]');
+  if(f){f.focus();if(/^(INPUT|TEXTAREA)$/.test(f.tagName)&&f.type!=='checkbox'&&f.select){try{f.select()}catch(_){}}}else{cell.tabIndex=-1;cell.focus()}
+  try{(f||cell).scrollIntoView({block:'nearest',inline:'nearest'})}catch(_){}}
+document.addEventListener('keydown',function(e){
+  const k=e.key;
+  if((k==='Enter'||k===' ')&&e.target&&e.target.tagName==='TD'&&!UI.modal){const td=e.target;if(td.classList.contains('add')){e.preventDefault();td.click();return}
+    if(k==='Enter'){const b=td.querySelector('button')||td.parentElement.querySelector('button.link,button');if(b){e.preventDefault();b.click()}}return}
+  if(!/^Arrow(Up|Down|Left|Right)$/.test(k)||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||UI.modal)return;
+  const t=e.target;if(!t||!t.closest)return;const td=t.closest('td,th');if(!td)return;const table=td.closest('table');if(!table)return;
+  const tag=t.tagName,ty=t.type||'',ud=(k==='ArrowUp'||k==='ArrowDown');
+  if(tag==='INPUT'&&/^(date|month|time|datetime-local)$/.test(ty))return;
+  if(tag==='SELECT'&&ud)return;
+  if(tag==='TEXTAREA'){const v=t.value,a=t.selectionStart===0&&t.selectionEnd===0,z=t.selectionStart===v.length;if(k==='ArrowUp'&&!a)return;if(k==='ArrowDown'&&!z)return;if(k==='ArrowLeft'&&!z)return;if(k==='ArrowRight'&&!a)return}
+  if(tag==='INPUT'&&!ud&&t.selectionStart!=null){const v=t.value;if(k==='ArrowLeft'&&t.selectionEnd!==v.length)return;if(k==='ArrowRight'&&t.selectionStart!==0)return}
+  const tr=td.parentElement,cells=Array.from(tr.children),ci=cells.indexOf(td);let cell=null;
+  if(ud){const rows=Array.from(table.rows);let ri=rows.indexOf(tr)+(k==='ArrowDown'?1:-1);const r=rows[ri];if(r&&r.cells.length)cell=r.cells[Math.min(ci,r.cells.length-1)]}
+  else{const rtl=document.documentElement.dir==='rtl',vr=k==='ArrowRight';cell=cells[ci+(rtl?(vr?-1:1):(vr?1:-1))]}
+  if(!cell)return;e.preventDefault();focusCell(cell)});
+try{const mo=new MutationObserver(()=>{document.querySelectorAll('td.add:not([tabindex])').forEach(x=>x.tabIndex=0)});mo.observe(document.body,{childList:true,subtree:true})}catch(_){}
 
 /* ---------- startup: sign-in required ---------- */
 function boot(){
