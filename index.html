@@ -2054,7 +2054,7 @@ function openApptForm(o){
       {k:'date',label:'التاريخ',type:'date',req:true},
       {k:'time',label:'الوقت (فترات ثابتة)',type:'select',req:true,options:()=>slotOptions(d.time)},
       {k:'duration',label:'المدة (دقيقة)',type:'number',min:5,step:5,req:true},
-      {k:'doctorId',label:'الطبيب',type:'select',req:true,options:()=>activeDoctors().concat(S.doctors.filter(x=>!x.active&&x.id===d.doctorId)).map(x=>{let s='';if(validDate(d.date)&&validTime(d.time)){const v=doctorAvail(x.id,d.date,d.time,Number(d.duration)||60);if(!v.ok)s=' (غير متاح)';else if(doctorConflicts(x.id,d.date,d.time,Number(d.duration)||60,edit?a.id:null).length)s=' (مشغول)'}return{v:x.id,l:x.name+s}})},
+      {k:'doctorId',label:'الطبيب',type:'select',req:true,options:()=>S.doctors.filter(x=>x.active).concat(S.doctors.filter(x=>!x.active&&x.id===d.doctorId)).map(x=>{let s='';if(validDate(d.date)&&validTime(d.time)){const v=doctorAvail(x.id,d.date,d.time,Number(d.duration)||60);if(!v.ok)s=' (غير متاح)';else if(doctorConflicts(x.id,d.date,d.time,Number(d.duration)||60,edit?a.id:null).length)s=' (مشغول)'}return{v:x.id,l:x.name+s}})},
       {k:'fak',label:'فك (خيار إضافي)',type:'checkbox',show:dd=>hasFak(dd.doctorId),hint:'يتوفر هذا الخيار لجلسات د. روضه فقط.'},
       edit?{k:'attended',label:'حضر المريض',type:'checkbox',hint:'تسجيل الحضور يُنشئ جلسة واحدة ويحتسب أجر الطبيب الذي قام بالجلسة. إلغاء العلامة يعكس الجلسة بسجل واضح.'}:{k:'repeat',label:'التكرار الأسبوعي (عدد المواعيد)',type:'number',min:1,max:12,step:1,hint:'1 = موعد واحد. يُنشأ كل موعد في نفس اليوم والوقت من الأسابيع التالية.'},
       edit?{k:'status',label:()=>wasAtt&&!UI.draft.attended?'الحالة بعد التراجع عن الحضور':'الحالة',type:'select',show:dd=>!(wasAtt&&dd.attended),options:()=>[{v:'scheduled',l:'لم يُسجَّل بعد'},{v:'missed',l:'لم يحضر'}].concat(a&&a.status==='cancelled'?[{v:'cancelled',l:'محذوف'}]:[])}:{type:'html',html:()=>''},
@@ -2948,9 +2948,9 @@ function doctorHomeHTML(){
      else if(a.docAtt){s='<span class="b partial">سجّلت — بانتظار السكرتارية</span>';b='<button class="btn sm" data-act="docMarkPat" data-id="'+a.id+'">إلغاء تسجيلي</button>'}
      else if(a.secAtt){s='<span class="b partial">السكرتارية سجّلت — بانتظار تأكيدك</span>';b='<button class="btn sm primary" data-act="docMarkPat" data-id="'+a.id+'">تأكيد حضوره</button>'}
      else{s='<span class="muted">لم يحضر بعد</span>';b='<button class="btn sm primary" data-act="docMarkPat" data-id="'+a.id+'">'+ic('check',14)+' حضر</button>'}
-     return '<tr><td>'+tfmtT(a.time)+'</td><td><b>'+esc(patName(a.patientId))+'</b></td><td>'+s+'</td><td class="acts">'+b+'</td></tr>'}).join('')+'</tbody></table></div>':empty('لا توجد مواعيد لك اليوم'))+'</section>';
+     return '<tr><td>'+tfmtT(a.time)+'</td><td><b>'+esc(patName(a.patientId))+'</b>'+warnLamp(did,a.patientId)+'</td><td>'+s+'</td><td class="acts">'+b+'</td></tr>'}).join('')+'</tbody></table></div>':empty('لا توجد مواعيد لك اليوم'))+'</section>';
   {const tm=addDaysS(t,1),wdt=weekday(tm),off=!(S.settings.workDays||[]).includes(wdt)||!(d.workDays||[]).includes(wdt),l=S.appointments.filter(a=>a.date===tm&&a.doctorId===did&&a.status!=='cancelled').sort((a,b)=>toMin(a.time)-toMin(b.time));
-    h+='<section class="card"><h2>جدولي ليوم '+dlong(tm)+'</h2>'+(off?'<p class="muted">'+(wdt===5?'الجمعة إجازة — لا توجد حالات.':'لا توجد حالات — إجازة.')+'</p>':(l.length?'<ul class="list">'+l.map(a=>'<li><span class="m"><b>'+tfmtT(a.time)+'</b> · '+esc(patName(a.patientId))+'</span></li>').join('')+'</ul>':'<p class="muted">لا توجد مواعيد لك.</p>'))+'</section>';}
+    h+='<section class="card"><h2>جدولي ليوم '+dlong(tm)+'</h2>'+(off?'<p class="muted">'+(wdt===5?'الجمعة إجازة — لا توجد حالات.':'لا توجد حالات — إجازة.')+'</p>':(l.length?'<ul class="list">'+l.map(a=>'<li><span class="m"><b>'+tfmtT(a.time)+'</b> · '+esc(patName(a.patientId))+warnLamp(did,a.patientId)+'</span></li>').join('')+'</ul>':'<p class="muted">لا توجد مواعيد لك.</p>'))+'</section>';}
   return h;
 }
 function examsHTML(){
@@ -2961,10 +2961,10 @@ function examsHTML(){
   act.sort(byD);cx.sort(byD);
   const amt=n=>rec?'<span class="n">'+nfmt(n)+' ج</span>':money(n);
   const tot=act.reduce((a,e)=>a+e.amount,0);
-  const row=(e,c)=>'<tr class="'+(c?'':exCls(e))+'"'+(c?' style="opacity:.6"':'')+'><td>'+dfmt(e.date)+'</td><td>'+(c?'<s>':'')+esc(examName(e))+(c?'</s>':'')+'</td><td>'+esc(docName(e.doctorId))+'</td><td class="c">'+amt(e.amount)+'</td><td>'+exInfo(e)+'</td><td class="acts">'+(c?'<button class="btn sm" data-act="restoreExam" data-id="'+e.id+'">استرجاع</button>':'<button class="btn sm" data-act="examMeta" data-id="'+e.id+'">متابعة</button> <button class="btn sm" data-act="cancelExam" data-id="'+e.id+'">كنسلة</button>')+'</td></tr>';
+  const row=(e,c)=>'<tr class="'+(c?'':exCls(e))+'"'+(c?' style="opacity:.6"':'')+'><td>'+dfmt(e.date)+'</td><td>'+(c?'<s>':'')+esc(examName(e))+(c?'</s>':'')+'</td><td>'+esc(docName(e.doctorId))+'</td><td class="c">'+amt(e.amount)+'</td><td>'+exInfo(e)+'</td><td class="acts">'+(c?'<button class="btn sm" data-act="restoreExam" data-id="'+e.id+'">استرجاع</button>':(needsConv(e)?'<button class="btn sm primary" data-act="examConv" data-id="'+e.id+'">تحويل لمريض</button> ':'')+'<button class="btn sm" data-act="examMeta" data-id="'+e.id+'">متابعة</button> <button class="btn sm" data-act="cancelExam" data-id="'+e.id+'">كنسلة</button>')+'</td></tr>';
   const head='<thead><tr><th>التاريخ</th><th>المريض</th><th>الطبيب</th><th class="c">المبلغ</th><th>التحويل / المتابعة</th><th></th></tr></thead>';
   let h='<div class="page-head"><div><h1>الكشوفات</h1><p class="muted">'+(rec?'كشوفات اليوم فقط · '+dlong(t):'كشوفات كل شهر لوحده.')+'</p></div><div class="acts"><button class="btn primary" data-act="addExam">'+ic('plus')+' إضافة كشف</button></div></div>';
-  h+=examMonthBar(rec);h+='<div class="stats">'+statCard(rec?'عدد كشوفات اليوم':'عدد الكشوفات',act.length)+statCard(rec?'إجمالي كشوفات اليوم':'إجمالي كشوفات الشهر',rec?'<span class="n">'+nfmt(tot)+' ج</span>':money(tot),'',true)+(cx.length?statCard('الكشوفات الملغاة',cx.length):'')+'</div>';
+  h+=examMonthBar(rec);if(!rec)h+='<div class="stats">'+statCard(rec?'عدد كشوفات اليوم':'عدد الكشوفات',act.length)+statCard(rec?'إجمالي كشوفات اليوم':'إجمالي كشوفات الشهر',rec?'<span class="n">'+nfmt(tot)+' ج</span>':money(tot),'',true)+(cx.length?statCard('الكشوفات الملغاة',cx.length):'')+'</div>';
   h+='<section class="card">'+(act.length?'<div class="tw" style="max-height:560px"><table class="xl tight w">'+head+'<tbody>'+act.map(e=>row(e,false)).join('')+'</tbody></table></div>':empty(rec?'لا توجد كشوفات مسجلة اليوم':'لا توجد كشوفات مسجلة'))+'</section>';
   if(cx.length)h+='<section class="card"><h2>الكشوفات الملغاة</h2><div class="tw" style="max-height:320px"><table class="xl tight w">'+head+'<tbody>'+cx.map(e=>row(e,true)).join('')+'</tbody></table></div></section>';
   return h;
@@ -3434,11 +3434,12 @@ function dailyaccHTML(){
 function dailytxEvents(d){
   const by=auditUserMap(),ev=[];
   for(const t of S.ledger){if(t.date!==d||!IDX.pat.has(t.patientId))continue;if(t.type!=='payment'&&t.type!=='refund')continue;if(t.reversedBy||t.status==='removed')continue;
-    ev.push({time:hhmm(t.createdAt),kind:t.type,label:TX_L[t.type],pid:t.patientId,detail:(t.method||'')+(t.note?' · '+t.note:''),amount:t.amount,by:by.get(t.id)||'',st:t.reversedBy?'معكوسة':(t.status==='received'?'':'بانتظار'),cash:t.status==='received'})}
+    ev.push({id:t.id,time:hhmm(t.createdAt),kind:t.type,label:TX_L[t.type],pid:t.patientId,detail:(t.method||'')+(t.note?' · '+t.note:''),amount:t.amount,by:by.get(t.id)||'',st:t.reversedBy?'معكوسة':(t.status==='received'?'':'بانتظار'),cash:t.status==='received'})}
   for(const u of S.purchases){if(u.date!==d||!IDX.pat.has(u.patientId))continue;ev.push({time:hhmm((u.history&&u.history[0]||{}).ts),kind:'purchase',label:'شراء / تجديد باقة',pid:u.patientId,detail:u.name+' · '+u.sessions+' جلسات · سعر '+nfmt(u.price),amount:null,by:by.get(u.id)||'',st:u.status==='closed'?'مغلقة':'',price:u.price})}
-  for(const s of S.sessions){if(s.date!==d||s.status!=='active'||!IDX.pat.has(s.patientId))continue;const c=sessionComp(s);ev.push({time:s.time||'',kind:'session',label:s.kind==='free'?'جلسة مجانية':'جلسة منفذة',pid:s.patientId,detail:docName(s.doctorId)+' · أجر الطبيب '+nfmt(c.doctor),amount:null,by:((s.history||[])[0]||{}).user||'',st:''})}
-  for(const r of S.expenses||[]){if(r.date!==d)continue;ev.push({time:'',kind:'expense',label:'مصروف',pid:null,detail:r.text,amount:-r.amount,by:by.get(r.id)||'',st:'',exp:r.amount})}
-  for(const r of S.exams||[]){if(r.date!==d)continue;ev.push({time:'',kind:'exam',label:'كشف',pid:r.patientId||null,detail:examName(r),amount:r.amount,by:'',st:'',exam:r.amount})}
+  for(const s of S.sessions){if(s.date!==d||s.status!=='active'||!IDX.pat.has(s.patientId))continue;const c=sessionComp(s);ev.push({aid:s.appointmentId||'',time:s.time||'',kind:'session',label:s.kind==='free'?'جلسة مجانية':'جلسة منفذة',pid:s.patientId,detail:docName(s.doctorId)+' · أجر الطبيب '+nfmt(c.doctor),amount:null,by:((s.history||[])[0]||{}).user||'',st:''})}
+  for(const a of S.appointments){if(a.date!==d||a.status==='attended'||a.status==='cancelled'||!IDX.pat.has(a.patientId))continue;ev.push({id:a.id,aid:a.id,time:a.time||'',kind:'appt',label:'موعد'+(a.status==='missed'?' (لم يحضر)':''),pid:a.patientId,detail:docName(a.doctorId),amount:null,by:'',st:''})}
+  for(const r of S.expenses||[]){if(r.date!==d)continue;ev.push({id:r.id,time:'',kind:'expense',label:'مصروف',pid:null,detail:r.text,amount:-r.amount,by:by.get(r.id)||'',st:'',exp:r.amount})}
+  for(const r of S.exams||[]){if(r.date!==d)continue;ev.push({id:r.id,time:'',kind:'exam',label:'كشف',pid:r.patientId||null,detail:examName(r),amount:r.amount,by:'',st:'',exam:r.amount})}
   for(const b of S.braces||[]){for(const p of b.payments||[]){if(p.date!==d)continue;ev.push({time:'',kind:'brace',label:'دفعة دعامة',pid:b.patientId||null,detail:b.type+' · '+braceName(b),amount:p.amount,by:p.user||'',st:''})}}
   ev.sort((a,b)=>(a.time||'99:99')<(b.time||'99:99')?-1:(a.time||'99:99')>(b.time||'99:99')?1:0);
   return ev;
@@ -3448,11 +3449,11 @@ function dailytxHTML(){
   const all=dailytxEvents(d),ev=st.type?all.filter(e=>e.kind===st.type):all;
   const net=round2(all.filter(e=>e.cash&&e.amount!=null).reduce((a,e)=>a+e.amount,0));
   const pk=all.filter(e=>e.kind==='purchase'),exp=all.filter(e=>e.kind==='expense').reduce((a,e)=>a+e.exp,0),exm=all.filter(e=>e.kind==='exam').reduce((a,e)=>a+e.exam,0);
-  const types=[['','كل المعاملات'],['payment','دفعات'],['refund','استردادات'],['purchase','باقات'],['session','جلسات'],['expense','مصروفات'],['exam','كشوفات'],['brace','دفعات الدعامات']];
-  let h=dayBar('dt','المعاملات اليومية','كل حركة حصلت في اليوم: دفعات، باقات، جلسات، مصروفات وكشوفات.','');
+  const types=[['','كل المعاملات'],['payment','دفعات'],['refund','استردادات'],['purchase','باقات'],['session','جلسات'],['expense','مصروفات'],['exam','كشوفات'],['brace','دفعات الدعامات'],['appt','مواعيد']];
+  let h=dayBar('dt','المعاملات اليومية','كل حركة حصلت في اليوم: دفعات، باقات، جلسات، مصروفات وكشوفات.','<button class="btn primary" data-act="dtAddAppt">'+ic('plus')+' حجز موعد</button>');
   h+='<div class="stats">'+statCard('صافي الدفعات',money(net),'دفعات − استردادات',true)+statCard('جلسات منفذة',all.filter(e=>e.kind==='session').length)+statCard('باقات اتباعت',pk.length,money(pk.reduce((a,e)=>a+e.price,0)))+statCard('مصروفات',money(exp))+statCard('كشوفات',money(exm))+'</div>';
   h+='<section class="card"><div class="toolbar"><select class="sel" data-ch="dtType" aria-label="نوع المعاملة">'+types.map(t=>'<option value="'+t[0]+'"'+(st.type===t[0]?' selected':'')+'>'+t[1]+'</option>').join('')+'</select></div>';
-  h+=ev.length?'<p class="hint">'+ev.length+' حركة</p>'+tbl(['الوقت','النوع','المريض / التفاصيل','المبلغ','بواسطة','الحالة'],ev.map(e=>'<tr><td class="n">'+(e.time||'—')+'</td><td>'+e.label+'</td><td>'+(e.pid?'<button class="link" data-act="openPanel" data-id="'+e.pid+'">'+esc(patName(e.pid))+'</button> · ':'')+'<span class="muted">'+esc(e.detail)+'</span></td><td class="c">'+(e.amount==null?'—':money(e.amount))+'</td><td>'+esc(e.by)+'</td><td>'+e.st+'</td></tr>').join(''),720):empty('لا توجد حركات في هذا اليوم');
+  h+=ev.length?'<p class="hint">'+ev.length+' حركة</p>'+tbl(['الوقت','النوع','المريض / التفاصيل','المبلغ','بواسطة','الحالة',''],ev.map(e=>'<tr><td class="n">'+(e.time||'—')+'</td><td>'+e.label+'</td><td>'+(e.pid?'<button class="link" data-act="openPanel" data-id="'+e.pid+'">'+esc(patName(e.pid))+'</button> · ':'')+'<span class="muted">'+esc(e.detail)+'</span></td><td class="c">'+(e.amount==null?'—':money(e.amount))+'</td><td>'+esc(e.by)+'</td><td>'+e.st+'</td><td class="acts">'+dtActs(e)+'</td></tr>').join(''),780):empty('لا توجد حركات في هذا اليوم');
   return h+'</section>';
 }
 
@@ -4061,6 +4062,36 @@ document.addEventListener('keydown',function(e){
   if(!cell)return;e.preventDefault();focusCell(cell)});
 try{const mo=new MutationObserver(()=>{document.querySelectorAll('td.add:not([tabindex])').forEach(x=>x.tabIndex=0)});mo.observe(document.body,{childList:true,subtree:true})}catch(_){}
 
+
+/* ===== v59 additions ===== */
+function warnLamp(did,pid){let n=0;for(const x of IDX.patSes[pid]||[])if(x.status==='active'&&x.doctorId===did)n++;return n>6?' <span title="تجاوز 6 جلسات ('+n+')" style="font-size:15px">🟡</span>':''}
+function needsConv(e){if(!e.patientId)return true;const p=patById(e.patientId);return !!(p&&p.examOnly)}
+function dtActs(e){let h='';
+  if(e.aid)h+='<button class="btn sm" data-act="dtEditAppt" data-id="'+e.aid+'">تعديل</button> ';
+  const del=(a,k,v)=>'<button class="btn sm danger" data-act="'+a+'" '+k+'="'+v+'">حذف</button>';
+  if(e.kind==='payment'&&e.id)h+=del('removeTx','data-tid',e.id);
+  else if(e.kind==='expense'&&e.id)h+=del('removeExp','data-id',e.id);
+  else if(e.kind==='exam'&&e.id)h+=del('cancelExam','data-id',e.id);
+  else if(e.kind==='appt')h+=del('dtDelAppt','data-id',e.id);
+  return h}
+function openExamConv(id){const r=(S.exams||[]).find(x=>x.id===id);if(!r)return;const old=r.patientId?patById(r.patientId):null;
+  const docs=S.doctors.filter(d=>d.active&&!d.examOnly);
+  openForm({title:'تحويل الكشف إلى مريض',submit:'تحويل لمريض',intro:'الحالة كمّلت في المكان، هتتسجل كمريض ويتحدد دكتورها.',draft:{name:old?old.name:examName(r),phone:old?old.phone:'',doctorId:docs[0]?docs[0].id:'',category:'persession'},
+    fields:()=>[{k:'name',label:'اسم المريض',type:'text',req:true,full:true},{k:'phone',label:'الهاتف',type:'text'},{k:'doctorId',label:'الدكتور',type:'select',req:true,options:()=>docs.map(x=>({v:x.id,l:x.name}))},{k:'category',label:'الفئة',type:'select',options:()=>[{v:'persession',l:CAT_L.persession},{v:'package',l:CAT_L.package},{v:'free',l:CAT_L.free}]}],
+    validate(d){const e={};if(!String(d.name||'').trim())e.name='اكتب الاسم.';if(!d.doctorId)e.doctorId='اختر الدكتور.';return{errors:e}},
+    onSave(d){let p;
+      if(old){p=old;p.name=String(d.name).trim();p.phone=String(d.phone||'').trim();p.doctorId=d.doctorId;p.category=d.category;delete p.examOnly;if(p.notes==='كشف فقط')p.notes='';
+        logA('patient',p.id,'تحويل من كشف إلى مريض',[{field:'الطبيب الأساسي',from:'',to:docName(p.doctorId)}],'',p.id)}
+      else p=createPatient({name:d.name,phone:d.phone,doctorId:d.doctorId,category:d.category,startDate:todayISO(),notes:'محوّل من كشف'});
+      r.patientId=p.id;r.patientName='';r.cont='yes';r.noReason='';
+      logA('exam',r.id,'تحويل كشف إلى مريض: '+p.name,[{field:'المريض',from:'',to:p.id}],'',p.id);commit();return{msg:'تم تسجيل «'+p.name+'» كمريض ('+p.id+').'}}});
+}
+Object.assign(ACT,{
+  dtAddAppt(){openApptForm({date:(UI.dt||{}).date||todayISO()})},
+  dtEditAppt(t){openApptForm({id:t.dataset.id})},
+  dtDelAppt(t){const a=appById(t.dataset.id);if(!a)return;openConfirm('حذف الموعد','سيتم حذف موعد «'+esc(patName(a.patientId))+'» (محفوظ في السجل).','حذف',true,()=>{const r=setApptStatus(a.id,'cancelled','حذف من المعاملات اليومية');toast(r.ok?(r.msg||'تم الحذف.'):r.error,r.ok?'':'bad');refresh()})},
+  examConv(t){openExamConv(t.dataset.id)}
+});
 /* ---------- startup: sign-in required ---------- */
 function boot(){
   SYNC.start();
