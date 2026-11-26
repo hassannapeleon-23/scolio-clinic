@@ -1525,7 +1525,7 @@ function openDayPayForm(pid){
   openForm({title:'تسجيل دفعة — '+dfmtT(st.date),submit:'تسجيل الدفعة',draft:{patientId:pid||'',amount:'',date:st.date,method:METHODS[0],note:'',nopat:''},
     fields:d=>[{k:'patientId',label:'المريض (ابحث بالاسم أو الرقم أو الهاتف)',type:'patsearch',full:true},{k:'nopat',label:'أو اكتب بيان لو الدفعة بدون مريض',type:'text',full:true,show:x=>!x.patientId},{k:'amount',label:'المبلغ (EGP)',type:'number',min:0,step:'any',req:true},{k:'date',label:'تاريخ الدفع',type:'date',req:true},
       {k:'method',label:'طريقة الدفع',type:'select',options:METHODS.map(m=>({v:m,l:m}))},{k:'note',label:'ملاحظة',type:'text',full:true}],
-    validate(d){const e={};if(!validDate(d.date))e.date='تاريخ غير صحيح.';if(!(+d.amount>0))e.amount='أدخل مبلغاً أكبر من صفر.';if(!d.patientId&&!String(d.nopat||'').trim())e.nopat='اختر مريضاً أو اكتب بياناً.';return{errors:e}},
+    info:d=>d.patientId?pkgNote(d.patientId):'',validate(d){const e={};if(!validDate(d.date))e.date='تاريخ غير صحيح.';if(!(+d.amount>0))e.amount='أدخل مبلغاً أكبر من صفر.';if(!d.patientId&&!String(d.nopat||'').trim())e.nopat='اختر مريضاً أو اكتب بياناً.';return{errors:e}},
     onSave(d){
       if(!d.patientId){S.dayAdj=S.dayAdj||[];const x={id:'DJ-'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),label:String(d.nopat).trim(),amount:round2(+d.amount),method:d.method,date:d.date,by:ACTOR};S.dayAdj.push(x);logA('payment',x.id,'دفعة بدون مريض: '+x.label,[{field:'المبلغ',from:'',to:String(x.amount)}],'');commit();return{msg:'تم تسجيل الدفعة.'}}
       const p=patById(d.patientId);if(!p)return{error:'اختر المريض.'};const u=payBucketFor(p);
@@ -2207,7 +2207,7 @@ function openPayForm(pid,puId){
   openForm({title:'تسجيل دفعة — '+p.name,submit:'تسجيل الدفعة',draft:{target:tg,amount:'',date:todayISO(),method:METHODS[0],status:'received',note:''},
     fields:d=>[{k:'target',label:'الدفعة على',type:'select',options:targets,full:true},{k:'amount',label:'المبلغ (EGP)',type:'number',min:0,step:50,req:true},{k:'date',label:'تاريخ الدفع',type:'date',req:true},
       {k:'method',label:'طريقة الدفع',type:'select',options:METHODS.map(m=>({v:m,l:m}))},{k:'status',label:'حالة الدفع',type:'select',options:[{v:'received',l:'مستلمة'},{v:'pending',l:'بانتظار الاستلام (لا تُحسب إيراداً)'}]},{k:'note',label:'ملاحظة',type:'text',full:true}],
-    info:d=>{const u=IDX.pur.get(d.target);const out=u?IDX.pu[u.id].out:Math.max(0,pdOf(pid).outstanding);return '<div class="note">المتبقي حالياً: <b>'+moneyT(out)+'</b>'+(num(d.amount)>0?' · بعد هذه الدفعة: <b>'+moneyT(Math.max(0,out-(d.status==='received'?num(d.amount):0)))+'</b>':'')+'. الدفعة تُسجَّل كمعاملة مستقلة ولا تُعدّل أي معاملة سابقة.</div>'},
+    info:d=>{const u=IDX.pur.get(d.target);const out=u?IDX.pu[u.id].out:Math.max(0,pdOf(pid).outstanding);return pkgNote(pid,u)+'<div class="note">المتبقي حالياً: <b>'+moneyT(out)+'</b>'+(num(d.amount)>0?' · بعد هذه الدفعة: <b>'+moneyT(Math.max(0,out-(d.status==='received'?num(d.amount):0)))+'</b>':'')+'. الدفعة تُسجَّل كمعاملة مستقلة ولا تُعدّل أي معاملة سابقة.</div>'},
     onSave(d){const r=addPayment({patientId:pid,purchaseId:d.target==='pps'?null:d.target,amount:d.amount,date:d.date,method:d.method,status:d.status,note:d.note});return r.ok?{msg:r.msg}:{error:r.error}}});
 }
 function openCorrectPay(tid){
@@ -4064,7 +4064,12 @@ try{const mo=new MutationObserver(()=>{document.querySelectorAll('td.add:not([ta
 
 
 /* ===== v59 additions ===== */
-function warnLamp(did,pid){let n=0;for(const x of IDX.patSes[pid]||[])if(x.status==='active'&&x.doctorId===did)n++;return n>6?' <span title="تجاوز 6 جلسات ('+n+')" style="font-size:15px">🟡</span>':''}
+function curPkg(pid){const l=IDX.patPur[pid]||[];return l.filter(x=>x.status==='active'&&!x.settled).slice(-1)[0]||null}
+function warnLamp(did,pid){const u=curPkg(pid);let n=0;for(const x of IDX.patSes[pid]||[]){if(x.status!=='active'||x.doctorId!==did)continue;if(u&&x.purchaseId!==u.id)continue;n++}
+  const k=Math.floor(n/6);return k<1?'':' <span title="'+n+' جلسات معاك في الباقة دي" style="font-size:15px">'+'🟡'.repeat(Math.min(k,4))+'</span>'}
+function pkgNote(pid,u){const pd=pdOf(pid),cur=u||curPkg(pid),f=v=>'<b><span class="n">'+nfmt(v)+' ج</span></b>';
+  if(cur){const x=IDX.pu[cur.id];return '<div class="note">الباقة: <b>'+esc(cur.name)+'</b> · نفّذ <b>'+x.used+'</b> من <b>'+cur.sessions+'</b> جلسة · المطلوب '+f(cur.price)+' · المدفوع '+f(x.col)+' · المتبقي عليه '+f(x.out)+'</div>'}
+  return '<div class="note">جلسات منفذة: <b>'+pd.completed+'</b> · المستحق '+f(pd.due)+' · المدفوع '+f(pd.collected)+' · المتبقي عليه '+f(pd.outstanding)+'</div>'}
 function needsConv(e){if(!e.patientId)return true;const p=patById(e.patientId);return !!(p&&p.examOnly)}
 function dtActs(e){let h='';
   if(e.aid)h+='<button class="btn sm" data-act="dtEditAppt" data-id="'+e.aid+'">تعديل</button> ';
