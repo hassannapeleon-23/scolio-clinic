@@ -3436,7 +3436,7 @@ function dailytxEvents(d){
   for(const t of S.ledger){if(t.date!==d||!IDX.pat.has(t.patientId))continue;if(t.type!=='payment'&&t.type!=='refund')continue;if(t.reversedBy||t.status==='removed')continue;
     ev.push({id:t.id,time:hhmm(t.createdAt),kind:t.type,label:TX_L[t.type],pid:t.patientId,detail:(t.method||'')+(t.note?' · '+t.note:''),amount:t.amount,by:by.get(t.id)||'',st:t.reversedBy?'معكوسة':(t.status==='received'?'':'بانتظار'),cash:t.status==='received'})}
   for(const u of S.purchases){if(u.date!==d||!IDX.pat.has(u.patientId))continue;ev.push({time:hhmm((u.history&&u.history[0]||{}).ts),kind:'purchase',label:'شراء / تجديد باقة',pid:u.patientId,detail:u.name+' · '+u.sessions+' جلسات · سعر '+nfmt(u.price),amount:null,by:by.get(u.id)||'',st:u.status==='closed'?'مغلقة':'',price:u.price})}
-  for(const s of S.sessions){if(s.date!==d||s.status!=='active'||!IDX.pat.has(s.patientId))continue;const c=sessionComp(s);ev.push({aid:s.appointmentId||'',time:s.time||'',kind:'session',label:s.kind==='free'?'جلسة مجانية':'جلسة منفذة',pid:s.patientId,detail:docName(s.doctorId)+' · أجر الطبيب '+nfmt(c.doctor),amount:null,by:((s.history||[])[0]||{}).user||'',st:''})}
+  for(const s of S.sessions){if(s.date!==d||s.status!=='active'||!IDX.pat.has(s.patientId))continue;const c=sessionComp(s);ev.push({sid:s.id,aid:s.appointmentId||'',time:s.time||'',kind:'session',label:s.kind==='free'?'جلسة مجانية':'جلسة منفذة',pid:s.patientId,detail:docName(s.doctorId)+' · أجر الطبيب '+nfmt(c.doctor),amount:null,by:((s.history||[])[0]||{}).user||'',st:''})}
   for(const a of S.appointments){if(a.date!==d||a.status==='attended'||a.status==='cancelled'||!IDX.pat.has(a.patientId))continue;ev.push({id:a.id,aid:a.id,time:a.time||'',kind:'appt',label:'موعد'+(a.status==='missed'?' (لم يحضر)':''),pid:a.patientId,detail:docName(a.doctorId),amount:null,by:'',st:''})}
   for(const r of S.expenses||[]){if(r.date!==d)continue;ev.push({id:r.id,time:'',kind:'expense',label:'مصروف',pid:null,detail:r.text,amount:-r.amount,by:by.get(r.id)||'',st:'',exp:r.amount})}
   for(const r of S.exams||[]){if(r.date!==d)continue;ev.push({id:r.id,time:'',kind:'exam',label:'كشف',pid:r.patientId||null,detail:examName(r),amount:r.amount,by:'',st:'',exam:r.amount})}
@@ -4073,6 +4073,7 @@ function dtActs(e){let h='';
   else if(e.kind==='expense'&&e.id)h+=del('removeExp','data-id',e.id);
   else if(e.kind==='exam'&&e.id)h+=del('cancelExam','data-id',e.id);
   else if(e.kind==='appt')h+=del('dtDelAppt','data-id',e.id);
+  else if(e.kind==='session'&&e.sid)h+=del('dtDelSes','data-id',e.sid);
   return h}
 function openExamConv(id){const r=(S.exams||[]).find(x=>x.id===id);if(!r)return;const old=r.patientId?patById(r.patientId):null;
   const docs=S.doctors.filter(d=>d.active&&!d.examOnly);
@@ -4090,7 +4091,13 @@ Object.assign(ACT,{
   dtAddAppt(){openApptForm({date:(UI.dt||{}).date||todayISO()})},
   dtEditAppt(t){openApptForm({id:t.dataset.id})},
   dtDelAppt(t){const a=appById(t.dataset.id);if(!a)return;openConfirm('حذف الموعد','سيتم حذف موعد «'+esc(patName(a.patientId))+'» (محفوظ في السجل).','حذف',true,()=>{const r=setApptStatus(a.id,'cancelled','حذف من المعاملات اليومية');toast(r.ok?(r.msg||'تم الحذف.'):r.error,r.ok?'':'bad');refresh()})},
-  examConv(t){openExamConv(t.dataset.id)}
+  examConv(t){openExamConv(t.dataset.id)},
+  dtDelSes(t){need('admin');const x=S.sessions.find(q=>q.id===t.dataset.id);if(!x)return;
+    openConfirm('حذف الجلسة','هتتحذف جلسة «'+esc(patName(x.patientId))+'» وأجر الدكتور بتاعها، والموعد يتحذف كمان (محفوظ في السجل).','حذف',true,()=>{
+      const a=x.appointmentId?S.appointments.find(q=>q.id===x.appointmentId):null;let ok=true,err='';
+      if(a&&a.status==='attended'&&a.sessionId===x.id){const r=unattendCore(a.id,{reason:'حذف من المعاملات اليومية',newStatus:'scheduled'});if(!r.ok){ok=false;err=r.error}else setApptStatus(a.id,'cancelled','حذف من المعاملات اليومية')}
+      else{x.status='reversed';x.reversedAt=nowISO();x.reverseReason='حذف من المعاملات اليومية';(x.history=x.history||[]).push(hist('reverse','حذف الجلسة من المعاملات اليومية'));logA('session',x.id,'حذف جلسة',[{field:'الجلسة',from:'منفذة',to:'محذوفة'}],'',x.patientId);commit()}
+      toast(ok?'تم حذف الجلسة.':err,ok?'':'bad');refresh()})}
 });
 /* ---------- startup: sign-in required ---------- */
 function boot(){
