@@ -3417,7 +3417,7 @@ function dailyaccHTML(){
   const payers=new Set(live.filter(t=>t.type==='payment'&&!t.reversedBy).map(t=>t.patientId));
   const cash=round2(tot.cash||0),insta=round2(tot.insta||0),exp=round2(tot.expenses||0);
   const overList=[],overTotal=0;
-  let h=dayBar('da','الحسابات اليومية','مين دفع في اليوم، مع تسجيل دفعة أو تصحيحها.','<button class="btn primary" data-act="daAddPay">'+ic('plus')+' تسجيل دفعة</button>');
+  let h=dayBar('da','الحسابات اليومية','مين دفع في اليوم، مع تسجيل دفعة أو تصحيحها.','<button class="btn primary" data-act="daAddPay">'+ic('plus')+' تسجيل دفعة</button><button class="btn primary" data-act="dtAddSes">'+ic('plus')+' إضافة جلسة</button>');
   h+='<div class="stats">'+statCard('نقدي',money(cash))+statCard('إنستا / تحويلات',money(insta))+statCard('إجمالي المدفوع',money(cash+insta),payers.size+' مريض دفع',true)+statCard('مصروفات',money(exp))+statCard('الصافي بعد المصروفات',money(cash+insta-exp),'',true)+statCard('كشوفات د. بسمه',money(tot.exam||0),'خارج الإيراد')+(overTotal>0?statCard('دفع زيادة (كل المرضى)',money(overTotal),overList.length+' مريض'):'')+'</div>';
   h+='<section class="card"><h2>مين دفع</h2>';
   if(!rows.length)h+=empty('لا توجد دفعات في هذا اليوم','سجّل دفعة بالزر بالأعلى.');
@@ -3429,6 +3429,8 @@ function dailyaccHTML(){
   const ex=(S.expenses||[]).filter(r=>r.date===d),exa=(S.exams||[]).filter(r=>r.date===d);
   h+='<div class="two"><section class="card"><h2>مصروفات اليوم</h2>'+(ex.length?tbl(['البند','المبلغ',''],ex.map(r=>'<tr><td>'+esc(r.text)+'</td><td class="c">'+money(r.amount)+'</td><td class="acts"><button class="btn sm danger" data-act="removeExp" data-id="'+r.id+'">إزالة</button></td></tr>').join(''),320):empty('لا توجد مصروفات'))+'</section>';
   h+='<section class="card"><h2>كشوفات اليوم</h2>'+(exa.length?tbl(['المريض','المبلغ',''],exa.map(r=>'<tr><td>'+esc(examName(r))+'</td><td class="c">'+money(r.amount)+'</td><td class="acts"><button class="btn sm danger" data-act="cancelExam" data-id="'+r.id+'">إزالة</button></td></tr>').join(''),320):empty('لا توجد كشوفات'))+'</section></div>';
+  {const ss=S.sessions.filter(x=>x.date===d&&x.status==='active'&&IDX.pat.has(x.patientId)).sort(cmpSess);
+   h+='<section class="card"><h2>جلسات اليوم ('+ss.length+')</h2>'+(ss.length?tbl(['الوقت','المريض','الدكتور','النوع',''],ss.map(x=>'<tr><td class="n">'+(x.time||'—')+'</td><td><button class="link" data-act="openPanel" data-id="'+x.patientId+'">'+esc(patName(x.patientId))+'</button></td><td>'+esc(docName(x.doctorId))+'</td><td>'+(x.kind==='free'?'مجانية':x.kind==='pps'?'بالجلسة':'باقة')+'</td><td class="acts">'+(x.appointmentId?'<button class="btn sm" data-act="dtEditAppt" data-id="'+x.appointmentId+'">تعديل</button> ':'')+'<button class="btn sm danger" data-act="dtDelSes" data-id="'+x.id+'">حذف الجلسة</button></td></tr>').join(''),640):empty('لا توجد جلسات في هذا اليوم','اضغط «إضافة جلسة» بالأعلى.'))+'</section>'}
   if(overList.length)h+='<section class="card"><h2>مرضى دفعوا زيادة</h2><p class="muted">مبالغ مدفوعة أكتر من المطلوب (تظهر للمدير فقط).</p>'+tbl(['المريض','الزيادة'],overList.slice(0,40).map(x=>'<tr><td><button class="link" data-act="openPanel" data-id="'+x.p.id+'">'+esc(x.p.name)+'</button></td><td class="c">'+money(x.o)+'</td></tr>').join(''),320)+'</section>';
   return h;
 }
@@ -4118,7 +4120,7 @@ function linkExamsTo(np,name){const l=exMatches(name);if(!l.length)return;const 
 function curDates(p){const u=curPkg(p.id);let l=(IDX.patSes[p.id]||[]).filter(x=>x.status==='active'&&(!u||x.purchaseId===u.id)).sort(cmpSess);if(!u)l=l.slice(-12);
   return l.length?l.map((x,i)=>'<span class="chip" title="'+x.date+'">'+(i+1)+': '+x.date.slice(5).replace('-','/')+'</span>').join(' '):'<span class="muted">—</span>'}
 function curMoney(p,k){const u=curPkg(p.id),d=pdOf(p.id);let v;if(u){const x=IDX.pu[u.id];v=k==='col'?x.col:x.out}else v=k==='col'?d.collected:d.outstanding;return '<span class="n">'+nfmt(v)+' ج</span>'}
-function openDtSesForm(){const date=(UI.dt||{}).date||todayISO();
+function openDtSesForm(){const date=((UI.acc==='daily'&&UI.da&&UI.da.date)||(UI.dt||{}).date)||todayISO();
   openForm({title:'إضافة جلسة منفذة — '+dfmt(date),submit:'إضافة الجلسة',intro:'بتتسجل جلسة حضور في اليوم ده وبتتحسب للدكتور المختار.',draft:{patientId:'',doctorId:'',time:slotsList()[0]||'10:00'},
     fields:d=>[{k:'patientId',label:'المريض (ابحث بالاسم أو الرقم أو الهاتف)',type:'patsearch',req:true,full:true},
       {k:'doctorId',label:'الدكتور',type:'select',req:true,options:()=>[{v:'',l:'اختر الدكتور'}].concat(S.doctors.filter(x=>x.active).map(x=>({v:x.id,l:x.name})))},
