@@ -530,11 +530,25 @@ function buildIdx(){
     }
   }
   I.eff={};
-  for(const p of S.patients){const purs=(I.patPur[p.id]||[]).filter(u=>u.status!=='closed'&&!u.settled);if(!purs.length)continue;
-    purs.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.id<b.id?-1:1);
-    const ppsV=round2((I.patSes[p.id]||[]).filter(s=>s.status==='active'&&s.kind==='pps').reduce((a,s)=>a+s.value,0));
-    let c=Math.max(0,round2((I.col['pps:'+p.id]||0)-ppsV));
-    purs.forEach((u,i)=>{const tot=round2((I.col[u.id]||0)+c);if(tot>u.price&&i<purs.length-1){I.eff[u.id]=u.price;c=round2(tot-u.price)}else{I.eff[u.id]=tot;c=0}})}
+  for(const p of S.patients){
+    const A=(I.patPur[p.id]||[]).filter(u=>u.status!=='closed'&&!u.settled);if(!A.length)continue;
+    A.sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:x.id<y.id?-1:1);
+    const idx={};A.forEach((u,i)=>idx[u.id]=i);const eff=A.map(()=>0),adj=A.map(()=>0);
+    const pool=[];let ppsPaid=0,ppsLast='';
+    for(const t of (I.patTx[p.id]||[])){
+      if(t.status!=='received'||t.type==='reversal')continue;
+      if(t.type==='payment'){if(t.reversedBy)continue;
+        if(idx[t.bucket]!=null)pool.push({d:t.date,c:t.createdAt||'',a:t.amount});
+        else if(t.bucket==='pps:'+p.id){ppsPaid+=t.amount;if(t.date>ppsLast)ppsLast=t.date}}
+      else if(idx[t.bucket]!=null)adj[idx[t.bucket]]+=t.amount}
+    const ppsV=round2((I.patSes[p.id]||[]).filter(x=>x.status==='active'&&x.kind==='pps').reduce((q,x)=>q+x.value,0));
+    const ex=round2(ppsPaid-ppsV);if(ex>0)pool.push({d:ppsLast,c:'',a:ex});
+    pool.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:x.c<y.c?-1:x.c>y.c?1:0);
+    for(const it of pool){let a=it.a;if(!(a>0))continue;let h=0;for(let i=0;i<A.length;i++)if(A[i].date<=it.d)h=i;
+      const order=[];for(let i=h;i<A.length;i++)order.push(i);for(let i=h-1;i>=0;i--)order.push(i);
+      for(const i of order){if(a<=0)break;const room=Math.max(0,A[i].price-eff[i]),tk=Math.min(a,room);eff[i]=round2(eff[i]+tk);a=round2(a-tk)}
+      if(a>0)eff[A.length-1]=round2(eff[A.length-1]+a)}
+    A.forEach((u,i)=>{I.eff[u.id]=round2(eff[i]+adj[i])})}
   for(const u of S.purchases){
     const used=I.used[u.id],col=I.eff[u.id]!=null?I.eff[u.id]:(I.col[u.id]||0);
     const due=(u.status==='closed'||u.settled)?Math.max(0,col):u.price;
@@ -1934,11 +1948,11 @@ function panelHTML(p){
   h+='<div class="psec"><h3>سجل المواعيد والحضور ('+hist2.length+')</h3>'+apptTable(hist2,{cols:['att','date','time','doc','status','act'],empty:'لا توجد مواعيد سابقة',maxh:'340px'})+'</div>';
   h+='<div class="psec"><h3>سجل الجلسات المنفذة ('+sess.filter(s=>s.status==='active').length+')</h3>'+(sess.length?'<ul class="list">'+sess.filter(s=>s.status!=='reversed').slice().reverse().map(s=>{const c=sessionComp(s);
     return '<li class="'+(s.status==='reversed'?'undone':'')+'"><span class="m"><b>'+s.id+' · '+dfmt(s.date)+' '+tfmt(s.time)+(s.fak?' <span class="b fak">فك</span>':'')+'</b><span class="muted sm-t">'+esc(docName(s.doctorId))+(s.doctorId!==p.doctorId?' (بديل عن الطبيب الأساسي)':'')+(isFin()?' · '+(s.kind==='free'?'مجانية · أجر الطبيب '+moneyT(c.doctor)+' · تكلفة المركز '+moneyT(c.cost):'قيمة الجلسة '+moneyT(s.value)+' · أجر الطبيب '+moneyT(c.doctor)+' · حصة المركز '+moneyT(c.center)+(c.unfunded>0?' · غير مغطّاة بالدفع '+moneyT(c.unfunded):'')):'')+(s.status==='reversed'?' · عُكست: '+esc(s.reverseReason||''):'')+'</span></span>'+(canDo('admin')&&s.status==='active'?'<span class="mf"><button class="btn sm" data-act="daSesType" data-id="'+s.id+'">'+(s.kind==='pps'?'عادية — غيّر النوع':'باقة — غيّر النوع')+'</button><button class="btn sm" data-act="moveSes" data-id="'+s.id+'">نقل لباقة</button></span>':'')+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد جلسات منفذة بعد.</p>')+'</div>';
-  if(p.category!=='free'&&isFin()){h+='<div class="psec"><h3>الحسابات الإجمالية (كل الباقات)</h3><div class="mini"><div>حالة الدفع<b>'+badgeP(d.status)+'</b></div><div>إجمالي المستحق<b>'+money(d.due)+'</b></div><div>المحصّل<b>'+money(d.collected)+'</b></div><div>الرصيد المتبقي عليه<b>'+money(d.outstanding)+'</b></div></div></div>'}
+  if(p.category!=='free'&&isFin()){h+='<div class="psec"><h3>الحسابات الإجمالية (كل الباقات)</h3><div class="mini"><div>حالة الدفع<b>'+badgeP(d.status)+'</b></div><div>إجمالي سعر الباقات<b>'+money(purs.reduce((a,u)=>a+u.price,0))+'</b></div><div>إجمالي المستحق<b>'+money(d.due)+'</b></div><div>المحصّل<b>'+money(d.collected)+'</b></div><div>الرصيد المتبقي عليه<b>'+money(d.outstanding)+'</b></div></div></div>'}
   if(p.category!=='free'||purs.length){
     h+='<div class="psec"><h3>الباقات المشتراة</h3>'+(purs.length?'<ul class="list">'+purs.map(u=>{const x=IDX.pu[u.id];
-      return '<li><span class="m"><b>'+u.id+' · '+esc(u.name)+(u.status==='closed'?' <span class="b refunded">مغلقة</span>':(x.remaining<=0?' <span class="b paid">منتهية</span>':' <span class="b partial">الحالية</span>'))+'</b><span class="muted sm-t">'+dfmt(u.date)+' · '+u.sessions+' جلسات'+(isFin()?' · سعر الشراء '+moneyT(u.price)+(u.listPrice!==u.price?' (السعر وقت الشراء '+moneyT(u.listPrice)+')':''):'')+' · منفذ '+x.used+' · متبقي '+x.remaining+(isFin()?' · محصّل '+moneyT(x.col)+' · متبقٍ عليه '+moneyT(x.out):'')+'</span></span>'+
-        (isFin()?'<span class="mf">'+(canDo('admin')?'<button class="btn sm" data-act="renPurchase" data-id="'+u.id+'">تسمية</button>':'')+'<button class="btn sm" data-act="adjPurchase" data-id="'+u.id+'">تعديل</button>'+(canDo('admin')?'<button class="btn sm danger" data-act="delPurchase" data-id="'+u.id+'">حذف</button>':'')+(u.status==='active'?'<button class="btn sm" data-act="addPay" data-id="'+p.id+'" data-pu="'+u.id+'">دفعة</button><button class="btn sm danger" data-act="refundPurchase" data-id="'+u.id+'">استرداد / إغلاق</button>':'')+'</span>':'')+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد باقات مشتراة.</p>')+'</div>'}
+      return '<li><span class="m"><b><button class="link" data-act="pkgDays" data-id="'+u.id+'" title="أيام الحضور">'+esc(u.name)+'</button>'+(u.status==='closed'?' <span class="b refunded">مغلقة</span>':(x.remaining<=0?' <span class="b paid">منتهية</span>':' <span class="b partial">الحالية</span>'))+'</b><span class="muted sm-t">'+dfmt(u.date)+' · '+u.sessions+' جلسات'+(isFin()?' · سعر الشراء '+moneyT(u.price):'')+' · منفذ '+x.used+' · متبقي '+x.remaining+(isFin()?' · محصّل '+moneyT(x.col)+' · متبقٍ عليه '+moneyT(x.out):'')+'</span></span>'+
+        (isFin()?'<span class="mf">'+(canDo('admin')?'<button class="btn sm" data-act="renPurchase" data-id="'+u.id+'">تسمية</button>':'')+'<button class="btn sm" data-act="adjPurchase" data-id="'+u.id+'">تعديل</button>'+(canDo('admin')?'<button class="btn sm danger" data-act="delPurchase" data-id="'+u.id+'">حذف</button>':'')+(u.status==='active'?'<button class="btn sm" data-act="addPay" data-id="'+p.id+'" data-pu="'+u.id+'">دفعة</button><button class="btn sm danger" data-act="refundPurchase" data-id="'+u.id+'">استرداد / إغلاق</button>':'')+'</span>':'')+pkgDaysHTML(u)+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد باقات مشتراة.</p>')+'</div>'}
   if(p.category!=='free'&&isFin()){
     h+='<div class="psec"><h3>المدفوعات والمعاملات ('+txs.length+')'+(canDo('admin')?'<button class="btn sm" data-act="xferMoney" data-pid="'+p.id+'">نقل فلوس بين الباقات</button>':'')+'</h3>'+(txs.length?'<ul class="list">'+txs.filter(x=>!x.reversedBy&&x.type!=='reversal'&&x.status!=='removed').map(x=>{const rec=x.status==='received';let btn='';
       if(!rec)btn='<span class="mf"><button class="btn sm primary" data-act="confirmPend" data-tid="'+x.id+'">تأكيد الاستلام</button><button class="btn sm" data-act="cancelPend" data-tid="'+x.id+'">إلغاء</button></span>';
@@ -1946,7 +1960,7 @@ function panelHTML(p){
       else if(x.type==='payment'&&!x.reversedBy)btn='<span class="mf"><button class="btn sm" data-act="corrPay" data-tid="'+x.id+'">تصحيح</button><button class="btn sm danger" data-act="revPay" data-tid="'+x.id+'">عكس</button></span>';
       return '<li class="'+(x.reversedBy?'undone':'')+'"><span class="m"><b>'+x.id+' · '+TX_L[x.type]+' · '+money(x.amount)+'</b><span class="muted sm-t">'+dfmt(x.date)+' · '+esc(x.method)+' · '+(rec?'مستلمة':'بانتظار الاستلام (غير محسوبة)')+(x.note?' · '+esc(x.note):'')+(x.reason?' · سبب: '+esc(x.reason):'')+'</span></span>'+btn+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد معاملات.</p>')+'</div>'}
   const au=S.audit.filter(a=>a.patientId===p.id&&!(a.entity==='appointment'&&(a.changes||[]).some(c=>c.to===APP_L.cancelled))&&(isFin()||!['payment','purchase','package','payout','settings','user','bracepay'].includes(a.entity))).slice(-12).reverse();
-  h+='<div class="psec"><h3>سجل التعديلات</h3>'+(au.length?'<ul class="hlist">'+au.map(a=>'<li><b>'+esc(a.summary)+'</b> · <span class="n">'+a.ts.slice(0,16).replace('T',' ')+'</span>'+(a.changes.length?'<br>'+a.changes.map(c=>esc(c.field)+': '+esc(c.from)+' ← '+esc(c.to)).join(' | '):'')+(a.reason?'<br>السبب: '+esc(a.reason):'')+'</li>').join('')+'</ul>':'<p class="hint">لا توجد تعديلات مسجلة.</p>')+'</div>';
+  
   {const ex=(S.exams||[]).filter(e=>e.patientId===p.id).slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:0);const tot=ex.reduce((a,e)=>a+(+e.amount||0),0);
    h+='<div class="psec"><h3>كشوفات د. بسمه ('+ex.length+')</h3>'+(ex.length?'<ul class="list">'+ex.map(e=>'<li><span class="m"><b>'+dfmt(e.date)+'</b><span class="muted sm-t">رسم الكشف المدفوع '+moneyT(e.amount)+(e.kind==='other'?' · كشف عند طبيب آخر':' · د. بسمه')+'</span></span></li>').join('')+'<li><span class="m"><b>إجمالي ما دفعه في الكشوفات: '+moneyT(tot)+'</b></span></li></ul>':'<p class="hint">لا توجد كشوفات مسجلة.</p>')+'</div>';}
   return h;
@@ -2562,7 +2576,7 @@ function debtInfo(p){
   const half=tot>0&&done*2>=tot;
   return{d,half,done,tot,pct:tot>0?Math.min(100,Math.round(done/tot*100)):0};
 }
-function debtBadge(p){const x=debtInfo(p);let h=(x&&x.half&&canDo('money'))?' <span class="b unpaid" title="المريض أتمّ نصف جلساته أو أكثر وعليه مبلغ للمركز">⚠ متأخر في السداد</span>':'';const ov=pdOf(p.id).over;if(ov>0&&canDo('admin'))h+=' <span class="b partial" title="دفع أكثر من المطلوب — يظهر للمدير فقط">دفع زيادة '+nfmt(ov)+' ج</span>';return h}
+function debtBadge(p){const x=debtInfo(p);let h=(x&&x.half&&canDo('money'))?' <span class="b unpaid" title="المريض أتمّ نصف جلساته أو أكثر وعليه مبلغ للمركز">⚠ متأخر في السداد</span>':'';const ov=pdOf(p.id).over;if(false)h+=' <span class="b partial" title="دفع أكثر من المطلوب — يظهر للمدير فقط">دفع زيادة '+nfmt(ov)+' ج</span>';return h}
 function debtorsHTML(){
   const rows=S.patients.filter(p=>p.status!=='archived'||true).map(p=>({p,x:debtInfo(p)})).filter(r=>r.x);
   const warn=rows.filter(r=>r.x.half).sort((a,b)=>b.x.d.outstanding-a.x.d.outstanding),other=rows.filter(r=>!r.x.half).sort((a,b)=>b.x.d.outstanding-a.x.d.outstanding);
@@ -4213,6 +4227,12 @@ function openMoveSes(sid){need('admin');const sx=S.sessions.find(x=>x.id===sid);
 }
 Object.assign(ACT,{renPurchase(t){openRenPur(t.dataset.id)},moveSes(t){openMoveSes(t.dataset.id)}});
 ['renPurchase','moveSes'].forEach(x=>ADMIN_ACT.add(x));
+
+/* ===== v64: package attendance days ===== */
+function pkgDaysHTML(u){if(!UI.pkgOpen||!UI.pkgOpen[u.id])return '';
+  const l=S.sessions.filter(x=>x.status==='active'&&x.purchaseId===u.id).sort(cmpSess);
+  return '<div style="width:100%;flex-basis:100%">'+(l.length?'<div class="tw" style="max-height:260px"><table class="xl tight w" style="min-width:420px"><thead><tr><th class="c">#</th><th>اليوم</th><th>التاريخ</th><th>الوقت</th><th>الدكتور</th></tr></thead><tbody>'+l.map((x,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+WD[weekday(x.date)]+'</td><td>'+dfmt(x.date)+'</td><td>'+(x.time?tfmt(x.time):'—')+'</td><td>'+esc(docName(x.doctorId))+'</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">لا توجد جلسات حضور في هذه الباقة.</p>')+'</div>'}
+Object.assign(ACT,{pkgDays(t){UI.pkgOpen=UI.pkgOpen||{};UI.pkgOpen[t.dataset.id]=!UI.pkgOpen[t.dataset.id];renderPanel()}});
 /* ---------- startup: sign-in required ---------- */
 function boot(){
   SYNC.start();
