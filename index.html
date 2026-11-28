@@ -625,7 +625,9 @@ function checkSchedule(o){
     const v=doctorAvail(o.doctorId,o.date,o.time,o.duration);
     if(!v.ok)warnings.push(docName(o.doctorId)+': '+v.reason+'.');
   }
-  const pc=patientConflicts(o.patientId,o.date,o.time,o.duration,o.excludeId);
+  const sameDay=S.appointments.filter(x=>x.id!==o.excludeId&&x.status!=='cancelled'&&x.patientId===o.patientId&&x.date===o.date);
+  if(sameDay.length)errors.push('الحالة دي مكتوبة بالفعل في نفس اليوم مع '+sameDay.map(x=>docName(x.doctorId)+' الساعة '+tfmt(x.time)).join('، ')+'.');
+  const pc=sameDay.length?[]:patientConflicts(o.patientId,o.date,o.time,o.duration,o.excludeId);
   if(pc.length)warnings.push('تنبيه: المريض لديه موعد آخر متداخل في نفس الوقت ('+pc.map(x=>x.time+' عند '+docName(x.doctorId)).join('، ')+').');
   return{errors,warnings};
 }
@@ -1952,7 +1954,7 @@ function panelHTML(p){
   if(p.category!=='free'||purs.length){
     h+='<div class="psec"><h3>الباقات المشتراة</h3>'+(purs.length?'<ul class="list">'+purs.map(u=>{const x=IDX.pu[u.id];
       return '<li><span class="m"><b><button class="link" data-act="pkgDays" data-id="'+u.id+'" title="أيام الحضور">'+esc(u.name)+'</button>'+(u.status==='closed'?' <span class="b refunded">مغلقة</span>':(x.remaining<=0?' <span class="b paid">منتهية</span>':' <span class="b partial">الحالية</span>'))+'</b><span class="muted sm-t">'+dfmt(u.date)+' · '+u.sessions+' جلسات'+(isFin()?' · سعر الشراء '+moneyT(u.price):'')+' · منفذ '+x.used+' · متبقي '+x.remaining+(isFin()?' · محصّل '+moneyT(x.col)+' · متبقٍ عليه '+moneyT(x.out):'')+'</span></span>'+
-        (isFin()?'<span class="mf">'+(canDo('admin')?'<button class="btn sm" data-act="renPurchase" data-id="'+u.id+'">تسمية</button>':'')+'<button class="btn sm" data-act="adjPurchase" data-id="'+u.id+'">تعديل</button>'+(canDo('admin')?'<button class="btn sm danger" data-act="delPurchase" data-id="'+u.id+'">حذف</button>':'')+(u.status==='active'?'<button class="btn sm" data-act="addPay" data-id="'+p.id+'" data-pu="'+u.id+'">دفعة</button><button class="btn sm danger" data-act="refundPurchase" data-id="'+u.id+'">استرداد / إغلاق</button>':'')+'</span>':'')+pkgDaysHTML(u)+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد باقات مشتراة.</p>')+'</div>'}
+        (isFin()?'<span class="mf">'+(canDo('admin')?'<button class="btn sm" data-act="renPurchase" data-id="'+u.id+'">تسمية</button><button class="btn sm" data-act="moveSesBulk" data-id="'+u.id+'">نقل جلسات</button>':'')+'<button class="btn sm" data-act="adjPurchase" data-id="'+u.id+'">تعديل</button>'+(canDo('admin')?'<button class="btn sm danger" data-act="delPurchase" data-id="'+u.id+'">حذف</button>':'')+(u.status==='active'?'<button class="btn sm" data-act="addPay" data-id="'+p.id+'" data-pu="'+u.id+'">دفعة</button><button class="btn sm danger" data-act="refundPurchase" data-id="'+u.id+'">استرداد / إغلاق</button>':'')+'</span>':'')+pkgDaysHTML(u)+'</li>'}).join('')+'</ul>':'<p class="hint">لا توجد باقات مشتراة.</p>')+'</div>'}
   if(p.category!=='free'&&isFin()){
     h+='<div class="psec"><h3>المدفوعات والمعاملات ('+txs.length+')'+(canDo('admin')?'<button class="btn sm" data-act="xferMoney" data-pid="'+p.id+'">نقل فلوس بين الباقات</button>':'')+'</h3>'+(txs.length?'<ul class="list">'+txs.filter(x=>!x.reversedBy&&x.type!=='reversal'&&x.status!=='removed').map(x=>{const rec=x.status==='received';let btn='';
       if(!rec)btn='<span class="mf"><button class="btn sm primary" data-act="confirmPend" data-tid="'+x.id+'">تأكيد الاستلام</button><button class="btn sm" data-act="cancelPend" data-tid="'+x.id+'">إلغاء</button></span>';
@@ -3082,7 +3084,7 @@ const EXTRA_ACT={
 function patPickMatches(q){const n=norm(q),raw=String(q).trim().toLowerCase(),dg=digitsOnly(q);if(!n&&!raw)return[];
   return S.patients.filter(p=>!p.examOnly&&(norm(p.name).includes(n)||p.id.toLowerCase().includes(raw)||(dg.length>=3&&digitsOnly(p.phone).includes(dg)))).sort((a,b)=>(a.status==='archived')-(b.status==='archived')).slice(0,8)}
 const EXTRA_IN={patPick(t){const el=$('#ps-res');if(!el)return;const l=patPickMatches(t.value);
-  el.innerHTML=!t.value.trim()?'':l.length?l.map(p=>'<button type="button" class="btn sm" style="display:flex;width:100%;justify-content:space-between;margin-bottom:4px" data-act="pickPat" data-id="'+p.id+'"><span>'+esc(p.name)+'<span class="idc">'+p.id+'</span>'+(p.status==='archived'?' <span class="b refunded">مؤرشف</span>':'')+'</span><span class="muted">'+esc(p.phone||'')+'</span></button>').join(''):'<div class="hint">لا يوجد مريض مطابق.</div>'},bq(t){UI.brace.q=t.value;renderBraceTable()},pkq(t){UI.pkq=t.value;const el=$('#pkpur');if(el)el.innerHTML=purchasesTableHTML()}};
+  el.innerHTML=!t.value.trim()?'':l.length?l.map(p=>'<button type="button" class="btn sm" style="display:flex;width:100%;justify-content:space-between;margin-bottom:4px" data-act="pickPat" data-id="'+p.id+'"><span>'+esc(p.name)+'<span class="idc">'+p.id+'</span>'+(p.status==='archived'?' <span class="b refunded">مؤرشف</span>':'')+bookedNote(p.id)+'</span><span class="muted">'+esc(p.phone||'')+'</span></button>').join(''):'<div class="hint">لا يوجد مريض مطابق.</div>'},bq(t){UI.brace.q=t.value;renderBraceTable()},pkq(t){UI.pkq=t.value;const el=$('#pkpur');if(el)el.innerHTML=purchasesTableHTML()}};
 const EXTRA_CH={
   brStatus(t){UI.brace.status=t.value;renderBraceTable()},brPay(t){UI.brace.pay=t.value;renderBraceTable()},
   brSet(t){const b=(S.braces||[]).find(x=>x.id===t.dataset.id);if(!b)return;const was=b.status;b.status=t.value;logA('brace',b.id,'تغيير حالة الدعامة',[{field:'الحالة',from:BR_ST[was],to:BR_ST[b.status]}],'',b.patientId||null);commit();toast('تم تحديث حالة الدعامة.')}
@@ -4233,6 +4235,31 @@ function pkgDaysHTML(u){if(!UI.pkgOpen||!UI.pkgOpen[u.id])return '';
   const l=S.sessions.filter(x=>x.status==='active'&&x.purchaseId===u.id).sort(cmpSess);
   return '<div style="width:100%;flex-basis:100%">'+(l.length?'<div class="tw" style="max-height:260px"><table class="xl tight w" style="min-width:420px"><thead><tr><th class="c">#</th><th>اليوم</th><th>التاريخ</th><th>الوقت</th><th>الدكتور</th></tr></thead><tbody>'+l.map((x,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+WD[weekday(x.date)]+'</td><td>'+dfmt(x.date)+'</td><td>'+(x.time?tfmt(x.time):'—')+'</td><td>'+esc(docName(x.doctorId))+'</td></tr>').join('')+'</tbody></table></div>':'<p class="hint">لا توجد جلسات حضور في هذه الباقة.</p>')+'</div>'}
 Object.assign(ACT,{pkgDays(t){UI.pkgOpen=UI.pkgOpen||{};UI.pkgOpen[t.dataset.id]=!UI.pkgOpen[t.dataset.id];renderPanel()}});
+
+/* ===== v65: duplicate guard in fixed schedule + bulk session move ===== */
+Object.assign(CH,{fxCell(t){fxSave(t.dataset.d,+t.dataset.day,t.dataset.t,t.value);const c=$('#fx-count');if(c)c.textContent=fxCount(t.dataset.d);const sv=$('#fx-saved');if(sv)sv.textContent='تم الحفظ '+nowLocal().slice(11,16)}});
+function moveSessionToPkg(sx,u,p){unnotifyPkg(sx);const keep=sx.status;sx.status='void';
+  let value=round2(u.price/u.sessions);const used=livePurchaseUse(u.id);
+  if(used===u.sessions-1){let prior=0;for(const x of S.sessions)if(x.status==='active'&&x.purchaseId===u.id)prior+=x.value;value=round2(u.price-prior)}
+  sx.status=keep;for(const k of ['ovf','over','noPrice','basis','freeMode','comp','cost'])delete sx[k];
+  Object.assign(sx,{kind:'package',purchaseId:u.id,bucket:u.id,value,manualType:'package'});notifyPkg(p,sx);(sx.history=sx.history||[]).push(hist('edit','نقل الجلسة إلى الباقة '+u.name))}
+function openMoveBulk(uid){need('admin');const src=S.purchases.find(x=>x.id===uid);if(!src)return;const p=patById(src.patientId);if(!p)return;
+  const ses=S.sessions.filter(x=>x.status==='active'&&x.purchaseId===uid).sort(cmpSess);
+  const opts=(IDX.patPur[p.id]||[]).filter(u=>u.id!==uid).map(u=>({v:u.id,l:u.name+' · '+dfmt(u.date)+' · منفذ '+IDX.pu[u.id].used+' من '+u.sessions}));
+  if(!opts.length){toast('المريض ليس له باقة أخرى.','warn');return}if(!ses.length){toast('لا توجد جلسات في هذه الباقة.','warn');return}
+  const dr={to:opts[0].v,all:false};ses.forEach(x=>dr['s_'+x.id]=false);
+  openForm({title:'نقل جلسات من «'+src.name+'»',submit:'نقل',draft:dr,
+    fields:d=>[{k:'to',label:'انقل إلى باقة',type:'select',options:opts,full:true},{k:'all',label:'كل الجلسات ('+ses.length+')',type:'checkbox',full:true}].concat(ses.map((x,i)=>({k:'s_'+x.id,label:(i+1)+' — '+WD[weekday(x.date)]+' '+dfmt(x.date)+(x.time?' '+tfmt(x.time):''),type:'checkbox',show:dd=>!dd.all}))),
+    validate(d){const e={};if(!d.all&&!ses.some(x=>d['s_'+x.id]))e.to='اختر جلسة واحدة على الأقل.';return{errors:e}},
+    onSave(d){const u=S.purchases.find(x=>x.id===d.to);if(!u)return{error:'اختر الباقة.'};const l=ses.filter(x=>d.all||d['s_'+x.id]);
+      for(const x of l)moveSessionToPkg(x,u,p);
+      logA('session',uid,'نقل '+l.length+' جلسة بين الباقات',[{field:'الباقة',from:src.name,to:u.name}],'',p.id);commit();return{msg:'تم نقل '+l.length+' جلسة إلى «'+u.name+'».'}}});
+}
+Object.assign(ACT,{moveSesBulk(t){openMoveBulk(t.dataset.id)}});ADMIN_ACT.add('moveSesBulk');
+
+function bookedNote(pid){const f=UI.form,d=UI.draft;if(!f||!d||!/موعد/.test(f.title||'')||!validDate(d.date))return '';
+  const l=S.appointments.filter(x=>x.patientId===pid&&x.date===d.date&&x.status!=='cancelled');
+  return l.length?' <span class="b unpaid">محجوز اليوم مع '+esc(l.map(x=>docName(x.doctorId)+' '+tfmt(x.time)).join('، '))+'</span>':''}
 /* ---------- startup: sign-in required ---------- */
 function boot(){
   SYNC.start();
